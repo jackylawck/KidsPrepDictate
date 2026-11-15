@@ -1,26 +1,157 @@
-/* === 童温默書：上方句子彈出列 === */
+/* src/style.css */
+:root {
+  --primary-color: #b71c1c;
+  --primary-dark: #7f0000;
+  --secondary-color: #00796b;
+  --secondary-dark: #004c40;
+  --bg-color: #fdfaf2;
+  --surface-color: #ffffff;
+  --text-main: #333333;
+  --text-muted: #757575;
+  --border-color: #e0e0e0;
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang HK", "MingLiU", sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  line-height: 1.5;
+  overscroll-behavior-y: none;
+}
+
+#app {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 16px 12px 32px 12px;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 14px;
+}
+
+h1 {
+  font-size: 1.5rem;
+  color: var(--primary-color);
+}
+
+header p {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+/* === 家長出題折疊面板 === */
+.parent-panel {
+  background: var(--surface-color);
+  border: 1px solid #ffcdd2;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+}
+
+.parent-panel summary {
+  padding: 10px 14px;
+  font-weight: bold;
+  font-size: 0.95rem;
+  color: var(--primary-color);
+  cursor: pointer;
+  list-style: none;
+}
+
+.parent-controls {
+  padding: 12px 14px 16px 14px;
+  border-top: 1px dashed #ffcdd2;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mode-group label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+  color: var(--text-main);
+}
+
+.search-bar {
+  display: flex;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+#input-passage {
+  flex: 1;
+  padding: 10px 12px;
+  font-size: 1.05rem;
+  border: 2px solid var(--primary-color);
+  border-right: none;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  outline: none;
+}
+
+.btn-primary {
+  padding: 0 16px;
+  font-size: 0.95rem;
+  font-weight: bold;
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.preset-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-preset {
+  flex: 1;
+  min-width: 70px;
+  padding: 8px 10px;
+  background: #fff8e1;
+  border: 1px solid #ffb300;
+  color: #e65100;
+  font-weight: bold;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* === 上方課文彈出方格區 === */
 .passage-board-wrapper {
   background: var(--surface-color);
-  padding: 16px;
+  padding: 14px;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   text-align: center;
 }
 
 .passage-toolbar {
   display: flex;
   justify-content: center;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .btn-secondary {
-  padding: 8px 16px;
+  padding: 6px 14px;
   background-color: #e0f2f1;
   color: var(--secondary-dark);
   border: 1px solid var(--secondary-color);
   border-radius: 20px;
+  font-size: 0.9rem;
   font-weight: bold;
   cursor: pointer;
 }
@@ -29,23 +160,22 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px;
-  min-height: 64px;
+  gap: 8px;
+  min-height: 54px;
 }
 
 .char-slot {
-  width: 56px;
-  height: 56px;
+  width: 50px;
+  height: 50px;
   border: 2px dashed #bdbdbd;
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 2rem;
+  font-size: 1.75rem;
   font-weight: bold;
   color: var(--text-main);
   background: #fafafa;
-  transition: all 0.2s ease;
 }
 
 .char-slot.active {
@@ -58,24 +188,125 @@
   border: 2px solid var(--secondary-color);
   background: #e0f2f1;
   color: var(--secondary-dark);
-  animation: popReveal 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  animation: popReveal 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 .char-slot.punctuation {
-  width: 28px;
+  width: 24px;
   border: none;
   background: transparent;
-  font-size: 1.6rem;
 }
 
+/* === 下方手寫板工作區（強制寬高防止手機縮成 0） === */
 .dictation-workspace {
   background: var(--surface-color);
-  padding: 20px;
+  padding: 16px;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
   align-items: center;
+  width: 100%;
+}
+
+.warning-banner {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 12px;
+  background-color: #fff3e0;
+  border-left: 4px solid #ff9800;
+  color: #e65100;
+  font-size: 0.9rem;
+  font-weight: bold;
+  border-radius: 4px;
+  text-align: center;
+  display: none;
+}
+
+.warning-banner.warning-error {
+  background-color: #ffebee;
+  border-left-color: #f44336;
+  color: #c62828;
+}
+
+.canvas-container {
+  position: relative;
+  width: min(82vw, 360px);
+  height: min(82vw, 360px);
+  min-width: 280px;
+  min-height: 280px;
+  background-color: #ffffff;
+  border: 3px solid var(--primary-color);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: inset 0 0 12px rgba(0,0,0,0.04);
+}
+
+#trace-canvas,
+#ink-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#trace-canvas {
+  z-index: 1;
+  pointer-events: none;
+}
+
+#ink-canvas {
+  z-index: 2;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.stroke-badge {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: bold;
+  color: var(--text-muted);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  z-index: 3;
+  pointer-events: none;
+}
+
+.playback-controls {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.playback-controls button {
+  padding: 10px 16px;
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: bold;
+  color: var(--text-main);
+}
+
+.playback-controls button.btn-primary-solid {
+  background-color: var(--secondary-color);
+  color: white;
+  border-color: var(--secondary-color);
+}
+
+.playback-controls button.btn-danger {
+  color: var(--primary-color);
+  border-color: #ffcdd2;
 }
 
 @keyframes popReveal {
