@@ -17,6 +17,7 @@ export class TraceCanvas {
   private userStrokes: Point[][] = [];
   private currentStrokePoints: Point[] = [];
   private lastScreenPos: { x: number; y: number } | null = null;
+  private activePointerId: number | null = null;
 
   private autoCheckTimer: number | null = null;
   private failClearTimer: number | null = null;
@@ -209,6 +210,7 @@ export class TraceCanvas {
     this.userStrokes = [];
     this.currentStrokePoints = [];
     this.lastScreenPos = null;
+    this.activePointerId = null;
 
     this.inkCtx.save();
     this.inkCtx.setTransform(1, 0, 0, 1, 0, 0);
@@ -249,8 +251,11 @@ export class TraceCanvas {
 
     const start = (e: PointerEvent) => {
       e.preventDefault();
+      
+      // 阻絕多點觸控干擾：只認第一根手指
+      if (!e.isPrimary) return;
+      this.activePointerId = e.pointerId;
 
-      // P1-1 首次落筆自癒：若 CSS 實際顯示尺寸與 Canvas 緩衝區尺寸不符，立即校正
       const rect = this.inkCanvas.getBoundingClientRect();
       if (Math.abs(rect.width - this.canvasWidth) > 2 || Math.abs(rect.height - this.canvasHeight) > 2) {
         this.initRetinaDisplay();
@@ -260,7 +265,7 @@ export class TraceCanvas {
       if (this.autoCheckTimer) { clearTimeout(this.autoCheckTimer); this.autoCheckTimer = null; }
       if (this.failClearTimer) { clearTimeout(this.failClearTimer); this.failClearTimer = null; }
 
-      this.inkCanvas.setPointerCapture(e.pointerId);
+      this.inkCanvas.setPointerCapture(this.activePointerId);
       this.isDrawing = true;
       const pos = getPos(e);
       this.lastScreenPos = pos;
@@ -269,11 +274,14 @@ export class TraceCanvas {
       ];
       this.inkCtx.beginPath();
       this.inkCtx.moveTo(pos.x, pos.y);
+      // 讓起點也能畫出一個圓點，支援小朋友輕點的「點(丶)」筆畫
+      this.inkCtx.lineTo(pos.x + 0.1, pos.y + 0.1); 
+      this.inkCtx.stroke();
     };
 
     const move = (e: PointerEvent) => {
       e.preventDefault();
-      if (!this.isDrawing) return;
+      if (!this.isDrawing || e.pointerId !== this.activePointerId) return;
       const pos = getPos(e);
 
       if (this.lastScreenPos && Math.hypot(pos.x - this.lastScreenPos.x, pos.y - this.lastScreenPos.y) < 2.5) {
@@ -290,32 +298,37 @@ export class TraceCanvas {
 
     const stop = (e: PointerEvent) => {
       e.preventDefault();
-      if (this.isDrawing) {
-        this.inkCtx.closePath();
-        this.isDrawing = false;
+      if (!this.isDrawing || e.pointerId !== this.activePointerId) return;
 
-        if (this.currentStrokePoints.length > 1) {
-          this.userStrokes.push(this.currentStrokePoints);
-          this.updateBadge();
+      const pos = getPos(e);
+      this.inkCtx.lineTo(pos.x, pos.y);
+      this.inkCtx.stroke();
+      this.inkCtx.closePath();
+      
+      this.isDrawing = false;
+      this.activePointerId = null;
+
+      if (this.currentStrokePoints.length > 0) {
+        this.userStrokes.push(this.currentStrokePoints);
+        this.updateBadge();
+      }
+
+      try {
+        if (this.inkCanvas.hasPointerCapture(e.pointerId)) {
+          this.inkCanvas.releasePointerCapture(e.pointerId);
         }
+      } catch { /* ignore */ }
 
-        try {
-          if (this.inkCanvas.hasPointerCapture(e.pointerId)) {
-            this.inkCanvas.releasePointerCapture(e.pointerId);
-          }
-        } catch { /* ignore */ }
-
-        if (this.isFreeWriteMode && this.userStrokes.length >= 1) {
-          this.autoCheckTimer = window.setTimeout(() => {
-            this.triggerVerificationNow();
-          }, 950);
-        } else if (this.currentData && this.userStrokes.length >= 1) {
-          const targetTotal = this.getTargetStrokeCount();
-          const delay = targetTotal > 0 && this.userStrokes.length >= targetTotal ? 850 : 1600;
-          this.autoCheckTimer = window.setTimeout(() => {
-            this.triggerVerificationNow();
-          }, delay);
-        }
+      if (this.isFreeWriteMode && this.userStrokes.length >= 1) {
+        this.autoCheckTimer = window.setTimeout(() => {
+          this.triggerVerificationNow();
+        }, 950);
+      } else if (this.currentData && this.userStrokes.length >= 1) {
+        const targetTotal = this.getTargetStrokeCount();
+        const delay = targetTotal > 0 && this.userStrokes.length >= targetTotal ? 850 : 1600;
+        this.autoCheckTimer = window.setTimeout(() => {
+          this.triggerVerificationNow();
+        }, delay);
       }
     };
 
