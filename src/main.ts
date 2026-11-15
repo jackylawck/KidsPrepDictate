@@ -4,6 +4,7 @@ import { TraceCanvas } from './ui/canvas-trace';
 import { DictationMatcher } from './core/dictation-matcher';
 import { getLang, setLang, t, type I18nKey } from './i18n';
 
+// 自由模式備用字庫：無須預先 fetch，視覺引擎會即時利用系統字型渲染
 const CORE_COMMON_CHARS =
   '一二三四五六七八九十人口手目耳日月水火木金土山石田禾上下大小多少左右前後中出入來去你我他她的是在有和不這那好愛家爸媽哥弟姐妹老師同學朋友春夏天秋風雨花草樹木鳥魚心手足頭面眉眼鼻口書筆紙床牀光疑地霜舉望低思故鄉';
 
@@ -69,7 +70,6 @@ function initApp() {
       : t('progressStrict', { done: doneChars, total: totalChars });
   };
 
-  // 套用全頁多語系文字（含靜態元素、Placeholder 與動態狀態列）
   const applyLocalization = () => {
     document.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => {
       const key = el.dataset.i18n as I18nKey;
@@ -100,25 +100,21 @@ function initApp() {
     return response;
   };
 
+  // 優化 1：直接建立基礎字元集索引，無需等待外部 JSON，實現 0 毫秒冷啟動
   const preloadCandidatePool = async () => {
     const uniqueChars = Array.from(new Set(Array.from(CORE_COMMON_CHARS)));
-    await Promise.allSettled(
-      uniqueChars.map(async (ch) => {
-        const code = ch.codePointAt(0);
-        if (!code) return;
-        const unicode = code.toString(16).toUpperCase().padStart(4, '0');
-        try {
-          const res = await fetchWithTimeout(`${baseUrl}data/${unicode}.json`, 3000);
-          if (res.ok) {
-            const data: StrokeData = await res.json();
-            if (data.medians && data.medians.length > 0) {
-              charCache.set(ch, data);
-              candidatePool.push(data);
-            }
-          }
-        } catch { /* ignore */ }
-      })
-    );
+    for (const ch of uniqueChars) {
+      const code = ch.codePointAt(0);
+      if (!code) continue;
+      const unicode = code.toString(16).toUpperCase().padStart(4, '0');
+      candidatePool.push({
+        char: ch,
+        unicode,
+        totalStrokes: 0,
+        strokes: [],
+        medians: []
+      });
+    }
     poolReady = true;
   };
 
@@ -292,7 +288,15 @@ function initApp() {
     try {
       const res = await fetchWithTimeout(`${baseUrl}data/${unicode}.json`, 3000);
       if (reqId !== loadRequestId) return;
-      if (!res.ok) throw new Error('Not found');
+      
+      if (!res.ok) {
+        // 優化 2：遇到 JSON 404 時不報錯，直接構造空資料庫交給視覺掃描引擎
+        const fallbackData: StrokeData = { char: targetChar, unicode, totalStrokes: 0, strokes: [], medians: [] };
+        charCache.set(targetChar, fallbackData);
+        traceCanvas.loadDictationTarget(fallbackData);
+        return;
+      }
+      
       const data: StrokeData = await res.json();
       if (reqId !== loadRequestId) return;
 
@@ -300,7 +304,9 @@ function initApp() {
       traceCanvas.loadDictationTarget(data);
     } catch {
       if (reqId !== loadRequestId) return;
-      traceCanvas.loadDictationTarget({ char: targetChar, unicode, totalStrokes: 0, strokes: [], medians: [] });
+      const fallbackData: StrokeData = { char: targetChar, unicode, totalStrokes: 0, strokes: [], medians: [] };
+      charCache.set(targetChar, fallbackData);
+      traceCanvas.loadDictationTarget(fallbackData);
     }
   };
 
