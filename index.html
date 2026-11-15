@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>童温默書 KidsPrepDictate | 專為香港學童設計的互動温默書工具</title>
+    <title>童温默書 KidsPrepDictate</title>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#b71c1c" />
     <link rel="stylesheet" href="/src/style.css" />
@@ -12,39 +12,55 @@
     <div id="app">
       <header>
         <h1>童温默書 KidsPrepDictate</h1>
-        <p>聽聲寫字，寫啱即刻彈出課文！</p>
+        <p>手寫認字，寫完逐格彈出課文！</p>
       </header>
 
       <main>
-        <!-- 家長出題區 -->
-        <div class="search-section">
-          <div class="search-bar">
-            <input type="text" id="input-passage" placeholder="輸入默書課文（例：牀前明月光）" value="牀前明月光" />
-            <button type="button" id="btn-start-dictation" class="btn-primary">開始默書</button>
+        <!-- 家長出題面板（開始默書後自動隱藏，防偷睇） -->
+        <details id="parent-panel" class="parent-panel" open>
+          <summary>👨‍👩‍👦 家長出題設定（點擊展開 / 隱藏題目）</summary>
+          <div class="parent-controls">
+            <div class="mode-group">
+              <label for="input-passage"><strong>模式一：輸入課文（隱藏答案報默）</strong></label>
+              <div class="search-bar">
+                <input type="text" id="input-passage" placeholder="輸入課文（例：牀前明月光）" />
+                <button type="button" id="btn-start-passage" class="btn-primary">鎖定開始</button>
+              </div>
+            </div>
+
+            <div class="mode-group">
+              <label><strong>模式二：免打字・直接設定格數（自由聽寫）</strong></label>
+              <div class="preset-btns">
+                <button type="button" class="btn-preset" data-count="4">4 個字</button>
+                <button type="button" class="btn-preset" data-count="5">5 個字</button>
+                <button type="button" class="btn-preset" data-count="7">7 個字</button>
+                <button type="button" class="btn-preset" data-count="10">10 個字</button>
+              </div>
+            </div>
           </div>
-        </div>
+        </details>
 
         <!-- 上方課文逐字彈出區 -->
         <div class="passage-board-wrapper">
-          <div class="passage-toolbar">
-            <button type="button" id="btn-speak-sentence" class="btn-secondary">🔊 朗讀整句 (粵語)</button>
+          <div class="passage-toolbar" id="audio-toolbar">
+            <button type="button" id="btn-speak-sentence" class="btn-secondary">🔊 朗讀整句</button>
             <button type="button" id="btn-speak-char" class="btn-secondary">🗣️ 讀出當前字</button>
           </div>
           <div id="sentence-slots" class="sentence-slots" aria-live="polite"></div>
         </div>
 
-        <!-- 下方手寫板與控制區 -->
+        <!-- 下方手寫板區（強制顯示大米字格） -->
         <div class="dictation-workspace">
           <div id="feedback-banner" class="warning-banner" role="status"></div>
           <div class="canvas-container">
-            <div id="stroke-badge" class="stroke-badge">準備默書</div>
+            <div id="stroke-badge" class="stroke-badge">請在格內寫字</div>
             <canvas id="trace-canvas" class="canvas-layer trace-layer"></canvas>
             <canvas id="ink-canvas" class="canvas-layer ink-layer"></canvas>
           </div>
           <div class="playback-controls">
+            <button type="button" id="btn-confirm-word" class="btn-primary-solid">✅ 寫好此字</button>
             <button type="button" id="btn-hint">💡 偷睇筆順</button>
-            <button type="button" id="btn-skip">⏭️ 跳過此字</button>
-            <button type="button" id="btn-clear" class="btn-danger">🧹 重寫本字</button>
+            <button type="button" id="btn-clear" class="btn-danger">🧹 重寫</button>
           </div>
         </div>
       </main>
