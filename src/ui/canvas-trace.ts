@@ -1,45 +1,36 @@
 // src/ui/canvas-trace.ts
-import { DictationMatcher, Point } from '../core/dictation-matcher';
-
-export interface StrokeData {
-  char: string;
-  unicode: string;
-  totalStrokes?: number;
-  radical?: string;
-  jyutping?: string[];
-  pinyin?: string[];
-  strokes: string[];
-  medians?: number[][][];
-}
+import type { Point, StrokeData, VerifyResult } from '../types';
+import { DictationMatcher } from '../core/dictation-matcher';
 
 export class TraceCanvas {
   private traceCanvas: HTMLCanvasElement;
   private traceCtx: CanvasRenderingContext2D;
   private inkCanvas: HTMLCanvasElement;
   private inkCtx: CanvasRenderingContext2D;
+  private staticGridCache: HTMLCanvasElement;
 
   private strokeBadge: HTMLElement | null;
   private currentData: StrokeData | null = null;
-  private _currentStrokeIndex: number = 1;
 
-  // 默書模式專屬狀態
   private isBlindMode: boolean = true;
+  private isFreeWriteMode: boolean = true;
   private userStrokes: Point[][] = [];
   private currentStrokePoints: Point[] = [];
+  private lastScreenPos: { x: number; y: number } | null = null;
+
   private autoCheckTimer: number | null = null;
+  private failClearTimer: number | null = null;
   private hintTimer: number | null = null;
-  private onMatchSuccessCallback?: () => void;
-  private onMatchFailCallback?: () => void;
+  private resizeTimer: number | null = null;
 
-  private isPlaying: boolean = false;
-  private playTimer: number | null = null;
-  private strokeInterval: number = 900;
+  private onStrictResultCallback?: (result: VerifyResult) => void;
+  private onFreeRecognizeCallback?: (strokes: Point[][]) => void;
+
   private isDrawing: boolean = false;
-
   private dpr: number = 1;
   private canvasWidth: number = 300;
+  private canvasHeight: number = 300;
   private abortController = new AbortController();
-  private resizeTimer: number | null = null;
 
   constructor(traceId: string, inkId: string, badgeId: string = 'stroke-badge') {
     const traceEl = document.getElementById(traceId) as HTMLCanvasElement;
@@ -50,6 +41,7 @@ export class TraceCanvas {
     this.traceCtx = this.traceCanvas.getContext('2d')!;
     this.inkCanvas = inkEl;
     this.inkCtx = this.inkCanvas.getContext('2d')!;
+    this.staticGridCache = document.createElement('canvas');
     this.strokeBadge = document.getElementById(badgeId);
 
     this.initRetinaDisplay();
@@ -58,29 +50,49 @@ export class TraceCanvas {
     window.addEventListener('resize', () => {
       if (this.resizeTimer) clearTimeout(this.resizeTimer);
       this.resizeTimer = window.setTimeout(() => {
-        const savedInk = this.inkCanvas.width > 0 && this.inkCanvas.height > 0
-          ? this.inkCtx.getImageData(0, 0, this.inkCanvas.width, this.inkCanvas.height)
-          : null;
         this.initRetinaDisplay();
-        this.renderTrace();
-        if (savedInk) this.inkCtx.putImageData(savedInk, 0, 0);
+        this.clearInk();
       }, 150);
     }, { signal: this.abortController.signal });
   }
 
-  public setDictationCallbacks(onSuccess: () => void, onFail?: () => void) {
-    this.onMatchSuccessCallback = onSuccess;
-    this.onMatchFailCallback = onFail;
+  public getUserStrokeCount(): number {
+    return this.userStrokes.length;
+  }
+
+  public getTargetStrokeCount(): number {
+    if (!this.currentData) return 0;
+    return this.currentData.medians?.length || this.currentData.totalStrokes || 0;
+  }
+
+  public destroy() {
+    this.clearAllTimers();
+    this.abortController.abort();
+  }
+
+  private clearAllTimers() {
+    if (this.autoCheckTimer) { clearTimeout(this.autoCheckTimer); this.autoCheckTimer = null; }
+    if (this.failClearTimer) { clearTimeout(this.failClearTimer); this.failClearTimer = null; }
+    if (this.hintTimer) { clearTimeout(this.hintTimer); this.hintTimer = null; }
+  }
+
+  public setCallbacks(
+    onStrictResult: (result: VerifyResult) => void,
+    onFreeRecognize: (strokes: Point[][]) => void
+  ) {
+    this.onStrictResultCallback = onStrictResult;
+    this.onFreeRecognizeCallback = onFreeRecognize;
   }
 
   private initRetinaDisplay() {
     this.dpr = window.devicePixelRatio || 1;
     const rect = this.inkCanvas.getBoundingClientRect();
-    const w = Math.floor(rect.width);
-    const h = Math.floor(rect.height);
+    const w = Math.max(120, Math.floor(rect.width));
+    const h = Math.max(120, Math.floor(rect.height));
     this.canvasWidth = w;
+    this.canvasHeight = h;
 
-    [this.traceCanvas, this.inkCanvas].forEach(canvas => {
+    [this.traceCanvas, this.inkCanvas, this.staticGridCache].forEach(canvas => {
       canvas.width = Math.floor(w * this.dpr);
       canvas.height = Math.floor(h * this.dpr);
     });
@@ -92,27 +104,52 @@ export class TraceCanvas {
     this.inkCtx.scale(this.dpr, this.dpr);
     this.inkCtx.lineCap = 'round';
     this.inkCtx.lineJoin = 'round';
-    this.inkCtx.lineWidth = 16;
+    this.inkCtx.lineWidth = 14;
     this.inkCtx.strokeStyle = 'rgba(25, 118, 210, 0.88)';
+
+    this.buildStaticGridCache();
+  }
+
+  private buildStaticGridCache() {
+    const ctx = this.staticGridCache.getContext('2d')!;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.staticGridCache.width, this.staticGridCache.height);
+    ctx.scale(this.dpr, this.dpr);
+
+    const w = this.canvasWidth;
+    const h = this.canvasHeight;
+    ctx.strokeStyle = '#E0A0A0';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2);
+    ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h);
+    ctx.moveTo(0, 0); ctx.lineTo(w, h);
+    ctx.moveTo(w, 0); ctx.lineTo(0, h);
+    ctx.stroke();
   }
 
   public loadDictationTarget(data: StrokeData) {
-    this.stopAutoPlay();
-    if (this.hintTimer) clearTimeout(this.hintTimer);
+    this.clearAllTimers();
     this.isDrawing = false;
-    this.isBlindMode = true; // 默書模式預設隱藏字形
+    this.isFreeWriteMode = false;
+    this.isBlindMode = true;
     this.currentData = data;
-    this._currentStrokeIndex = 1;
     this.clearInk();
-    this.renderTrace();
   }
 
-  // 卡關偷睇提示：閃現標準筆順 1.8 秒後自動恢復盲寫
+  public enterFreeWriteMode() {
+    this.clearAllTimers();
+    this.isDrawing = false;
+    this.isFreeWriteMode = true;
+    this.isBlindMode = true;
+    this.currentData = null;
+    this.clearInk();
+  }
+
   public flashHint(durationMs: number = 1800) {
-    if (!this.currentData) return;
+    if (!this.currentData || this.isFreeWriteMode) return;
     if (this.hintTimer) clearTimeout(this.hintTimer);
     this.isBlindMode = false;
-    this._currentStrokeIndex = this.currentData.totalStrokes || this.currentData.strokes.length;
     this.renderTrace();
 
     this.hintTimer = window.setTimeout(() => {
@@ -121,69 +158,44 @@ export class TraceCanvas {
     }, durationMs);
   }
 
-  public clearData() {
-    this.stopAutoPlay();
-    this.currentData = null;
-    this.clearInk();
-    if (this.strokeBadge) this.strokeBadge.textContent = '準備默書';
-    this.renderTrace();
-  }
-
-  private drawGrid() {
-    this.traceCtx.save();
-    this.traceCtx.strokeStyle = '#E0A0A0';
-    this.traceCtx.lineWidth = 3;
-    this.traceCtx.beginPath();
-    this.traceCtx.moveTo(0, 512); this.traceCtx.lineTo(1024, 512);
-    this.traceCtx.moveTo(512, 0); this.traceCtx.lineTo(512, 1024);
-    this.traceCtx.moveTo(0, 0); this.traceCtx.lineTo(1024, 1024);
-    this.traceCtx.moveTo(1024, 0); this.traceCtx.lineTo(0, 1024);
-    this.traceCtx.stroke();
-    this.traceCtx.restore();
+  public updateBadge() {
+    if (!this.strokeBadge) return;
+    if (this.isFreeWriteMode) {
+      this.strokeBadge.textContent = `自由寫字（已寫 ${this.userStrokes.length} 劃）`;
+    } else if (this.currentData) {
+      const total = this.getTargetStrokeCount();
+      this.strokeBadge.textContent = `已寫 ${this.userStrokes.length} / 目標 ${total} 劃`;
+    }
   }
 
   public renderTrace() {
     if (!this.canvasWidth) return;
+    this.updateBadge();
 
     this.traceCtx.save();
     this.traceCtx.setTransform(1, 0, 0, 1, 0, 0);
     this.traceCtx.clearRect(0, 0, this.traceCanvas.width, this.traceCanvas.height);
+    this.traceCtx.drawImage(this.staticGridCache, 0, 0);
     this.traceCtx.restore();
 
-    if (this.strokeBadge) {
-      if (this.currentData) {
-        const total = this.currentData.totalStrokes || this.currentData.strokes.length;
-        this.strokeBadge.textContent = `已寫 ${this.userStrokes.length} / 目標 ${total} 劃`;
-      } else {
-        this.strokeBadge.textContent = '等待出題';
-      }
-    }
-
-    const baseScaleFactor = this.canvasWidth / 1024;
-    this.traceCtx.save();
-    this.traceCtx.scale(baseScaleFactor, baseScaleFactor);
-    this.traceCtx.translate(0, 1024);
-    this.traceCtx.scale(1, -1);
-    this.drawGrid();
-    this.traceCtx.restore();
-
-    // 盲寫模式下不顯示字形
     if (!this.currentData || this.isBlindMode) return;
 
+    const minSide = Math.min(this.canvasWidth, this.canvasHeight);
     const safeScale = 0.85;
-    const finalScaleFactor = baseScaleFactor * safeScale;
-    const centerOffset = (this.canvasWidth * (1 - safeScale)) / 2;
+    const finalScale = (minSide / 1024) * safeScale;
+    const offsetX = (this.canvasWidth - minSide * safeScale) / 2;
+    const offsetY = (this.canvasHeight - minSide * safeScale) / 2;
 
     this.traceCtx.save();
-    this.traceCtx.translate(centerOffset, centerOffset);
-    this.traceCtx.scale(finalScaleFactor, finalScaleFactor);
+    this.traceCtx.translate(offsetX, offsetY);
+    this.traceCtx.scale(finalScale, finalScale);
     this.traceCtx.translate(0, 1024);
     this.traceCtx.scale(1, -1);
 
-    this.currentData.strokes.forEach((strokePath, index) => {
+    this.currentData.strokes.forEach((strokePath) => {
       try {
         const path = new Path2D(strokePath);
-        this.traceCtx.fillStyle = index + 1 === this._currentStrokeIndex ? '#d32f2f' : '#bdbdbd';
+        this.traceCtx.fillStyle = 'rgba(183, 28, 28, 0.28)';
         this.traceCtx.fill(path);
       } catch { /* ignore */ }
     });
@@ -191,18 +203,13 @@ export class TraceCanvas {
     this.traceCtx.restore();
   }
 
-  public stopAutoPlay() {
-    this.isPlaying = false;
-    if (this.playTimer) {
-      clearInterval(this.playTimer);
-      this.playTimer = null;
-    }
-  }
-
   public clearInk() {
-    if (this.autoCheckTimer) clearTimeout(this.autoCheckTimer);
+    if (this.autoCheckTimer) { clearTimeout(this.autoCheckTimer); this.autoCheckTimer = null; }
+    if (this.failClearTimer) { clearTimeout(this.failClearTimer); this.failClearTimer = null; }
     this.userStrokes = [];
     this.currentStrokePoints = [];
+    this.lastScreenPos = null;
+
     this.inkCtx.save();
     this.inkCtx.setTransform(1, 0, 0, 1, 0, 0);
     this.inkCtx.clearRect(0, 0, this.inkCanvas.width, this.inkCanvas.height);
@@ -210,14 +217,25 @@ export class TraceCanvas {
     this.renderTrace();
   }
 
-  private evaluateUserWriting() {
-    if (!this.currentData) return;
-    const isMatched = DictationMatcher.verifyCharacter(this.userStrokes, this.currentData);
-    if (isMatched) {
-      this.onMatchSuccessCallback?.();
-    } else {
-      this.onMatchFailCallback?.();
+  public scheduleFailClear(delayMs: number = 950) {
+    if (this.failClearTimer) clearTimeout(this.failClearTimer);
+    this.failClearTimer = window.setTimeout(() => {
+      this.clearInk();
+    }, delayMs);
+  }
+
+  public triggerVerificationNow() {
+    if (this.autoCheckTimer) { clearTimeout(this.autoCheckTimer); this.autoCheckTimer = null; }
+    if (this.userStrokes.length === 0) return;
+
+    if (this.isFreeWriteMode) {
+      this.onFreeRecognizeCallback?.(this.userStrokes);
+      return;
     }
+
+    if (!this.currentData) return;
+    const result = DictationMatcher.verifyCharacterStrict(this.userStrokes, this.currentData);
+    this.onStrictResultCallback?.(result);
   }
 
   private bindEvents() {
@@ -231,11 +249,24 @@ export class TraceCanvas {
 
     const start = (e: PointerEvent) => {
       e.preventDefault();
-      if (this.autoCheckTimer) clearTimeout(this.autoCheckTimer);
+
+      // P1-1 首次落筆自癒：若 CSS 實際顯示尺寸與 Canvas 緩衝區尺寸不符，立即校正
+      const rect = this.inkCanvas.getBoundingClientRect();
+      if (Math.abs(rect.width - this.canvasWidth) > 2 || Math.abs(rect.height - this.canvasHeight) > 2) {
+        this.initRetinaDisplay();
+        this.clearInk();
+      }
+
+      if (this.autoCheckTimer) { clearTimeout(this.autoCheckTimer); this.autoCheckTimer = null; }
+      if (this.failClearTimer) { clearTimeout(this.failClearTimer); this.failClearTimer = null; }
+
       this.inkCanvas.setPointerCapture(e.pointerId);
       this.isDrawing = true;
       const pos = getPos(e);
-      this.currentStrokePoints = [DictationMatcher.screenToHanziCoords(pos.x, pos.y, this.canvasWidth)];
+      this.lastScreenPos = pos;
+      this.currentStrokePoints = [
+        DictationMatcher.screenToHanziCoords(pos.x, pos.y, this.canvasWidth, this.canvasHeight)
+      ];
       this.inkCtx.beginPath();
       this.inkCtx.moveTo(pos.x, pos.y);
     };
@@ -244,7 +275,15 @@ export class TraceCanvas {
       e.preventDefault();
       if (!this.isDrawing) return;
       const pos = getPos(e);
-      this.currentStrokePoints.push(DictationMatcher.screenToHanziCoords(pos.x, pos.y, this.canvasWidth));
+
+      if (this.lastScreenPos && Math.hypot(pos.x - this.lastScreenPos.x, pos.y - this.lastScreenPos.y) < 2.5) {
+        return;
+      }
+      this.lastScreenPos = pos;
+
+      this.currentStrokePoints.push(
+        DictationMatcher.screenToHanziCoords(pos.x, pos.y, this.canvasWidth, this.canvasHeight)
+      );
       this.inkCtx.lineTo(pos.x, pos.y);
       this.inkCtx.stroke();
     };
@@ -257,7 +296,7 @@ export class TraceCanvas {
 
         if (this.currentStrokePoints.length > 1) {
           this.userStrokes.push(this.currentStrokePoints);
-          this.renderTrace(); // 更新已寫筆畫數
+          this.updateBadge();
         }
 
         try {
@@ -266,14 +305,16 @@ export class TraceCanvas {
           }
         } catch { /* ignore */ }
 
-        // 當寫滿目標筆畫數（或達到目標筆畫-1）且停頓 750ms，自動觸發認字判定
-        if (this.currentData) {
-          const targetTotal = this.currentData.totalStrokes || this.currentData.strokes.length;
-          if (this.userStrokes.length >= Math.max(1, targetTotal - 1)) {
-            this.autoCheckTimer = window.setTimeout(() => {
-              this.evaluateUserWriting();
-            }, 750);
-          }
+        if (this.isFreeWriteMode && this.userStrokes.length >= 1) {
+          this.autoCheckTimer = window.setTimeout(() => {
+            this.triggerVerificationNow();
+          }, 950);
+        } else if (this.currentData && this.userStrokes.length >= 1) {
+          const targetTotal = this.getTargetStrokeCount();
+          const delay = targetTotal > 0 && this.userStrokes.length >= targetTotal ? 850 : 1600;
+          this.autoCheckTimer = window.setTimeout(() => {
+            this.triggerVerificationNow();
+          }, delay);
         }
       }
     };
