@@ -1,6 +1,7 @@
 // src/ui/canvas-trace.ts
 import type { Point, StrokeData, VerifyResult } from '../types';
 import { DictationMatcher } from '../core/dictation-matcher';
+import { t } from '../i18n';
 
 export class TraceCanvas {
   private traceCanvas: HTMLCanvasElement;
@@ -162,10 +163,13 @@ export class TraceCanvas {
   public updateBadge() {
     if (!this.strokeBadge) return;
     if (this.isFreeWriteMode) {
-      this.strokeBadge.textContent = `自由寫字（已寫 ${this.userStrokes.length} 劃）`;
+      this.strokeBadge.textContent = t('badgeFree', { count: this.userStrokes.length });
     } else if (this.currentData) {
       const total = this.getTargetStrokeCount();
-      this.strokeBadge.textContent = `已寫 ${this.userStrokes.length} / 目標 ${total} 劃`;
+      this.strokeBadge.textContent = t('badgeStrict', {
+        current: this.userStrokes.length,
+        total
+      });
     }
   }
 
@@ -240,6 +244,20 @@ export class TraceCanvas {
     this.onStrictResultCallback?.(result);
   }
 
+  private scheduleAutoVerify() {
+    if (this.isFreeWriteMode && this.userStrokes.length >= 1) {
+      this.autoCheckTimer = window.setTimeout(() => {
+        this.triggerVerificationNow();
+      }, 950);
+    } else if (this.currentData && this.userStrokes.length >= 1) {
+      const targetTotal = this.getTargetStrokeCount();
+      const delay = targetTotal > 0 && this.userStrokes.length >= targetTotal ? 850 : 1600;
+      this.autoCheckTimer = window.setTimeout(() => {
+        this.triggerVerificationNow();
+      }, delay);
+    }
+  }
+
   private bindEvents() {
     const opts = { signal: this.abortController.signal };
     this.inkCanvas.style.touchAction = 'none';
@@ -251,9 +269,9 @@ export class TraceCanvas {
 
     const start = (e: PointerEvent) => {
       e.preventDefault();
-      
-      // 阻絕多點觸控干擾：只認第一根手指
-      if (!e.isPrimary) return;
+
+      // 阻絕多點觸控與重疊落筆干擾：只認第一根手指
+      if (!e.isPrimary || this.isDrawing) return;
       this.activePointerId = e.pointerId;
 
       const rect = this.inkCanvas.getBoundingClientRect();
@@ -274,8 +292,7 @@ export class TraceCanvas {
       ];
       this.inkCtx.beginPath();
       this.inkCtx.moveTo(pos.x, pos.y);
-      // 讓起點也能畫出一個圓點，支援小朋友輕點的「點(丶)」筆畫
-      this.inkCtx.lineTo(pos.x + 0.1, pos.y + 0.1); 
+      this.inkCtx.lineTo(pos.x + 0.1, pos.y + 0.1);
       this.inkCtx.stroke();
     };
 
@@ -304,7 +321,7 @@ export class TraceCanvas {
       this.inkCtx.lineTo(pos.x, pos.y);
       this.inkCtx.stroke();
       this.inkCtx.closePath();
-      
+
       this.isDrawing = false;
       this.activePointerId = null;
 
@@ -319,22 +336,31 @@ export class TraceCanvas {
         }
       } catch { /* ignore */ }
 
-      if (this.isFreeWriteMode && this.userStrokes.length >= 1) {
-        this.autoCheckTimer = window.setTimeout(() => {
-          this.triggerVerificationNow();
-        }, 950);
-      } else if (this.currentData && this.userStrokes.length >= 1) {
-        const targetTotal = this.getTargetStrokeCount();
-        const delay = targetTotal > 0 && this.userStrokes.length >= targetTotal ? 850 : 1600;
-        this.autoCheckTimer = window.setTimeout(() => {
-          this.triggerVerificationNow();
-        }, delay);
-      }
+      this.scheduleAutoVerify();
+    };
+
+    // 手掌誤觸或系統手勢中斷時丟棄該筆，避免污染筆畫數
+    const cancel = (e: PointerEvent) => {
+      e.preventDefault();
+      if (!this.isDrawing || e.pointerId !== this.activePointerId) return;
+
+      this.inkCtx.closePath();
+      this.isDrawing = false;
+      this.activePointerId = null;
+      this.currentStrokePoints = [];
+
+      try {
+        if (this.inkCanvas.hasPointerCapture(e.pointerId)) {
+          this.inkCanvas.releasePointerCapture(e.pointerId);
+        }
+      } catch { /* ignore */ }
+
+      this.scheduleAutoVerify();
     };
 
     this.inkCanvas.addEventListener('pointerdown', start, opts);
     this.inkCanvas.addEventListener('pointermove', move, opts);
     this.inkCanvas.addEventListener('pointerup', stop, opts);
-    this.inkCanvas.addEventListener('pointercancel', stop, opts);
+    this.inkCanvas.addEventListener('pointercancel', cancel, opts);
   }
 }
