@@ -1,0 +1,85 @@
+/* === 童温默書：上方句子彈出列 === */
+.passage-board-wrapper {
+  background: var(--surface-color);
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.passage-toolbar {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.btn-secondary {
+  padding: 8px 16px;
+  background-color: #e0f2f1;
+  color: var(--secondary-dark);
+  border: 1px solid var(--secondary-color);
+  border-radius: 20px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.sentence-slots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  min-height: 64px;
+}
+
+.char-slot {
+  width: 56px;
+  height: 56px;
+  border: 2px dashed #bdbdbd;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: bold;
+  color: var(--text-main);
+  background: #fafafa;
+  transition: all 0.2s ease;
+}
+
+.char-slot.active {
+  border: 2px solid var(--primary-color);
+  background: #ffebee;
+  transform: scale(1.06);
+}
+
+.char-slot.revealed {
+  border: 2px solid var(--secondary-color);
+  background: #e0f2f1;
+  color: var(--secondary-dark);
+  animation: popReveal 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.char-slot.punctuation {
+  width: 28px;
+  border: none;
+  background: transparent;
+  font-size: 1.6rem;
+}
+
+.dictation-workspace {
+  background: var(--surface-color);
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+@keyframes popReveal {
+  0% { transform: scale(0.3); opacity: 0; }
+  70% { transform: scale(1.18); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
