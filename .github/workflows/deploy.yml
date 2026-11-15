@@ -45,8 +45,8 @@ jobs:
           pnpm run compile:dict
           pnpm run build:data
 
-      - name: 6. TypeScript 嚴格型別檢查 (行內獨立驗證)
-        run: pnpm exec tsc --noEmit --target ES2022 --module ESNext --moduleResolution bundler --lib ES2022,DOM,DOM.Iterable --strict --skipLibCheck src/main.ts
+      - name: 6. TypeScript 嚴格型別檢查 (含 Vite 環境型別)
+        run: pnpm exec tsc --noEmit --target ES2022 --module ESNext --moduleResolution bundler --lib ES2022,DOM,DOM.Iterable --types vite/client --strict --skipLibCheck src/main.ts
 
       - name: 7. 執行自動化門禁測試
         run: pnpm exec vitest run
