@@ -4,8 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>童温默書 KidsPrepDictate</title>
+    <meta name="description" content="純前端、可離線運作的香港小學繁體字手寫默書應用程式" />
+    
+    <!-- iOS PWA 專屬設定 -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="童温默書" />
     <meta name="theme-color" content="#b71c1c" />
+    
+    <!-- 預留：PWA Manifest 與 Icon -->
+    <!-- <link rel="manifest" href="/manifest.json" /> -->
+    <!-- <link rel="apple-touch-icon" href="/apple-touch-icon.png" /> -->
+    
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -13,7 +23,7 @@
       <header>
         <div class="top-bar">
           <h1>童温默書 KidsPrepDictate</h1>
-          <span id="progress-pill" class="progress-pill">無家長自由模式：已寫 0 字</span>
+          <span id="progress-pill" class="progress-pill" role="status" aria-live="polite">無家長自由模式：已寫 0 字</span>
         </div>
       </header>
 
@@ -25,34 +35,39 @@
             <button type="button" id="btn-free-mode" class="btn-secondary full-width">✍️ 切換至「無家長自由寫字模式」</button>
           </div>
           <div class="mode-group">
-            <textarea id="input-passage" rows="3" placeholder="貼上整段默書課文（例：牀前明月光，疑是地上霜。）"></textarea>
+            <textarea id="input-passage" rows="3" placeholder="貼上整段默書課文（例：牀前明月光，疑是地上霜。）" aria-label="默書課文輸入框"></textarea>
             <button type="button" id="btn-start-passage" class="btn-primary full-width">鎖定整段課文並開始默書</button>
           </div>
         </div>
       </details>
 
       <!-- 上半部：整段課文逐字彈出區 -->
-      <section class="passage-board-wrapper">
+      <section class="passage-board-wrapper" aria-label="默書進度區">
         <div class="passage-toolbar">
-          <button type="button" id="btn-speak-sentence" class="btn-secondary">🔊 朗讀段落</button>
-          <button type="button" id="btn-speak-char" class="btn-secondary">🗣️ 讀出當前字</button>
+          <button type="button" id="btn-speak-sentence" class="btn-secondary" title="朗讀整段課文">🔊 朗讀段落</button>
+          <button type="button" id="btn-speak-char" class="btn-secondary" title="讀出目前需要默寫的字">🗣️ 讀出當前字</button>
         </div>
         <div id="sentence-slots" class="sentence-slots" aria-live="polite"></div>
       </section>
 
       <!-- 下半部：固定手寫板工作區 -->
-      <section class="dictation-workspace">
-        <div id="feedback-banner" class="warning-banner" role="status"></div>
-        <div id="candidate-bar" class="candidate-bar" style="display: none;"></div>
+      <section class="dictation-workspace" aria-label="手寫區">
+        <!-- 加上 role="alert" 確保出現錯誤時螢幕閱讀器能優先處理 -->
+        <div id="feedback-banner" class="warning-banner" role="alert"></div>
+        <div id="candidate-bar" class="candidate-bar" style="display: none;" aria-label="選字修正"></div>
+        
         <div class="canvas-container">
-          <div id="stroke-badge" class="stroke-badge">自由寫字（已寫 0 劃）</div>
+          <div id="stroke-badge" class="stroke-badge" aria-live="polite">自由寫字（已寫 0 劃）</div>
           <canvas id="trace-canvas" class="canvas-layer trace-layer"></canvas>
           <canvas id="ink-canvas" class="canvas-layer ink-layer"></canvas>
         </div>
+        
         <div class="playback-controls">
           <button type="button" id="btn-confirm-word" class="btn-primary-solid">✅ 確認寫完</button>
           <button type="button" id="btn-hint">💡 偷睇筆順</button>
           <button type="button" id="btn-clear" class="btn-danger">🧹 重寫本字</button>
+          <!-- 補回跳過按鈕，解決死代碼問題 -->
+          <button type="button" id="btn-skip" class="btn-secondary" style="display: none;">⏭️ 唔識跳過</button>
         </div>
       </section>
     </div>
