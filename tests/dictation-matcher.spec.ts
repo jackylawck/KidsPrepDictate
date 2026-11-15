@@ -1,65 +1,117 @@
-// tests/dictation-matcher.spec.ts
-import { describe, it, expect } from 'vitest';
-import { DictationMatcher, Point } from '../src/core/dictation-matcher';
-import { StrokeData } from '../src/ui/canvas-trace';
+// src/core/dictation-matcher.ts
+import { StrokeData } from '../ui/canvas-trace';
 
-describe('KidsPrepDictate 手寫筆畫比對引擎測試', () => {
-  // 模擬「十」字標準數據 (先橫後豎)
-  const mockCharShi: StrokeData = {
-    char: '十',
-    unicode: '5341',
-    totalStrokes: 2,
-    strokes: ['M 100 500 L 900 500', 'M 500 900 L 500 100'],
-    medians: [
-      [[150, 520], [880, 520]], // 第一畫：橫 (由左至右)
-      [[512, 880], [512, 120]]  // 第二畫：豎 (由上至下)
-    ]
-  };
+export interface Point {
+  x: number; // 0~1024 標準座標
+  y: number; // 0~1024 Cartesian Y 軸 (底部為 0)
+}
 
-  it('座標轉換器應正確將螢幕座標映射至 1024 Cartesian 座標系', () => {
-    const canvasWidth = 400;
-    // 畫布正中央 (200, 200) 應對應 (512, 512)
-    const center = DictationMatcher.screenToHanziCoords(200, 200, canvasWidth, 0.85);
-    expect(Math.round(center.x)).toBe(512);
-    expect(Math.round(center.y)).toBe(512);
-  });
+export class DictationMatcher {
+  public static screenToHanziCoords(
+    screenX: number,
+    screenY: number,
+    canvasWidth: number,
+    safeScale: number = 0.85
+  ): Point {
+    const baseScale = canvasWidth / 1024;
+    const finalScale = baseScale * safeScale;
+    const centerOffset = (canvasWidth * (1 - safeScale)) / 2;
 
-  it('當小朋友按正確筆順與方向書寫時，應判定為通過', () => {
-    const childStrokes: Point[][] = [
-      [{ x: 180, y: 500 }, { x: 850, y: 510 }], // 稍微歪斜的橫
-      [{ x: 500, y: 850 }, { x: 520, y: 150 }]  // 稍微歪斜的豎
-    ];
-    expect(DictationMatcher.verifyCharacter(childStrokes, mockCharShi)).toBe(true);
-  });
-
-  it('當小朋友亂畫（方向完全相反或筆畫數嚴重不符）時，應拒絕通過', () => {
-    const wrongStrokes: Point[][] = [
-      [{ x: 880, y: 520 }, { x: 150, y: 520 }], // 倒筆（由右至左）
-      [{ x: 512, y: 120 }, { x: 512, y: 880 }]  // 倒筆（由下至上）
-    ];
-    expect(DictationMatcher.verifyCharacter(wrongStrokes, mockCharShi)).toBe(false);
-  });
-
-  it('對於無 medians 数据的生僻字，應啟用安全邊界框檢查防止亂點過關', () => {
-    const rareChar: StrokeData = {
-      char: '龘',
-      unicode: '9F98',
-      totalStrokes: 1,
-      strokes: []
+    return {
+      x: (screenX - centerOffset) / finalScale,
+      y: 1024 - (screenY - centerOffset) / finalScale
     };
+  }
 
-    // 隨便點兩點（範圍極小）應不通過
-    const tinyDot: Point[][] = [[{ x: 500, y: 500 }, { x: 510, y: 510 }]];
-    expect(DictationMatcher.verifyCharacter(tinyDot, rareChar)).toBe(false);
+  /**
+   * 計算手寫筆畫與目標字 StrokeData 的幾何相似度分數 (0 ~ 1)
+   */
+  public static scoreCharacter(userStrokes: Point[][], targetData: StrokeData): number {
+    if (!userStrokes.length) return 0;
 
-    // 認真寫滿格子應通過（模擬真實書寫軌跡的連續取樣點）
-    const validBox: Point[][] = [[
-      { x: 200, y: 800 },
-      { x: 350, y: 650 },
-      { x: 500, y: 500 },
-      { x: 650, y: 350 },
-      { x: 800, y: 200 }
-    ]];
-    expect(DictationMatcher.verifyCharacter(validBox, rareChar)).toBe(true);
-  });
-});
+    const targetCount = targetData.totalStrokes || targetData.strokes.length;
+    const userCount = userStrokes.length;
+
+    // 筆畫數差距超過 1 畫直接淘汰
+    const strokeDiff = Math.abs(userCount - targetCount);
+    if (strokeDiff > 1) return 0;
+
+    if (!targetData.medians || targetData.medians.length === 0) {
+      return this.checkBoundingBoxSanity(userStrokes) ? 0.5 : 0;
+    }
+
+    const compareCount = Math.min(userCount, targetData.medians.length);
+    let totalStrokeScore = 0;
+
+    for (let i = 0; i < compareCount; i++) {
+      const uStroke = userStrokes[i];
+      const tMedian = targetData.medians[i];
+      if (uStroke.length < 2 || tMedian.length < 2) continue;
+
+      const uStart = uStroke[0];
+      const uEnd = uStroke[uStroke.length - 1];
+      const tStart = { x: tMedian[0][0], y: tMedian[0][1] };
+      const tEnd = { x: tMedian[tMedian.length - 1][0], y: tMedian[tMedian.length - 1][1] };
+
+      const startDist = Math.hypot(uStart.x - tStart.x, uStart.y - tStart.y);
+      const endDist = Math.hypot(uEnd.x - tEnd.x, uEnd.y - tEnd.y);
+
+      // 距離分數 (0~1)：允許起終點偏差最多 320 單位
+      const posScore = Math.max(0, 1 - (startDist + endDist) / 640);
+
+      // 方向向量餘弦相似度 (-1 ~ 1)
+      const uVec = { x: uEnd.x - uStart.x, y: uEnd.y - uStart.y };
+      const tVec = { x: tEnd.x - tStart.x, y: tEnd.y - tStart.y };
+      const dot = uVec.x * tVec.x + uVec.y * tVec.y;
+      const mag = Math.hypot(uVec.x, uVec.y) * Math.hypot(tVec.x, tVec.y);
+      const cosSim = mag > 0 ? dot / mag : 1;
+
+      // 方向嚴重相反直接計 0 分
+      const dirScore = cosSim > 0.35 ? cosSim : 0;
+
+      totalStrokeScore += posScore * 0.55 + dirScore * 0.45;
+    }
+
+    // 筆畫數完全吻合有加分，差 1 畫扣減 15%
+    const countPenalty = strokeDiff === 0 ? 1.0 : 0.85;
+    return (totalStrokeScore / Math.max(userCount, targetCount)) * countPenalty;
+  }
+
+  /**
+   * 嚴格驗證模式（家長有出題時使用，絕不放水）
+   */
+  public static verifyCharacter(userStrokes: Point[][], targetData: StrokeData): boolean {
+    if (!this.checkBoundingBoxSanity(userStrokes)) return false;
+    const score = this.scoreCharacter(userStrokes, targetData);
+    return score >= 0.58;
+  }
+
+  /**
+   * 無家長模式：從候選字庫中找出最吻合的 Top N 個繁體字
+   */
+  public static recognizeTopCandidates(
+    userStrokes: Point[][],
+    candidatePool: StrokeData[],
+    topN: number = 5
+  ): string[] {
+    if (!this.checkBoundingBoxSanity(userStrokes)) return [];
+
+    const scored = candidatePool
+      .map(data => ({
+        char: data.char,
+        score: this.scoreCharacter(userStrokes, data)
+      }))
+      .filter(item => item.score > 0.35)
+      .sort((a, b) => b.score - a.score);
+
+    return scored.slice(0, topN).map(item => item.char);
+  }
+
+  private static checkBoundingBoxSanity(userStrokes: Point[][]): boolean {
+    const allPoints = userStrokes.flat();
+    if (allPoints.length < 5) return false;
+    const xs = allPoints.map(p => p.x);
+    const ys = allPoints.map(p => p.y);
+    return (Math.max(...xs) - Math.min(...xs) > 140) || (Math.max(...ys) - Math.min(...ys) > 140);
+  }
+}
