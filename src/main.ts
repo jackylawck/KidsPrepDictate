@@ -1,6 +1,5 @@
 // src/main.ts
 import { TraceCanvas, StrokeData } from './ui/canvas-trace';
-import { DictationMatcher, Point } from './core/dictation-matcher';
 
 interface DictationToken {
   char: string;
@@ -18,9 +17,10 @@ function initApp() {
   const traceCanvas = new TraceCanvas('trace-canvas', 'ink-canvas', 'stroke-badge');
 
   const parentPanel = document.getElementById('parent-panel') as HTMLDetailsElement;
-  const inputPassage = document.getElementById('input-passage') as HTMLInputElement;
+  const inputPassage = document.getElementById('input-passage') as HTMLTextAreaElement;
   const btnStartPassage = document.getElementById('btn-start-passage') as HTMLButtonElement;
   const presetBtns = document.querySelectorAll('.btn-preset');
+  const progressPill = document.getElementById('progress-pill') as HTMLElement;
 
   const audioToolbar = document.getElementById('audio-toolbar') as HTMLElement;
   const btnSpeakSentence = document.getElementById('btn-speak-sentence') as HTMLButtonElement;
@@ -35,7 +35,7 @@ function initApp() {
   let tokens: DictationToken[] = [];
   let currentIndex = 0;
   let fullPassageText = '';
-  let isFreeCountMode = false; // 模式二：免打字純格數模式
+  let isFreeCountMode = false;
 
   const speakCantonese = (text: string) => {
     if (!text || !synth) return;
@@ -53,11 +53,21 @@ function initApp() {
     feedbackBanner.textContent = msg;
     feedbackBanner.style.display = 'block';
     feedbackBanner.classList.toggle('warning-error', isError);
-    window.setTimeout(() => { feedbackBanner.style.display = 'none'; }, 2400);
+    window.setTimeout(() => { feedbackBanner.style.display = 'none'; }, 2000);
+  };
+
+  const updateProgressBadge = () => {
+    const totalChars = tokens.filter(t => !t.isPunctuation).length;
+    const doneChars = tokens.filter(t => !t.isPunctuation && t.revealed).length;
+    progressPill.textContent = isFreeCountMode
+      ? `已寫 ${doneChars} / ${totalChars} 格`
+      : `進度 ${doneChars} / ${totalChars} 字`;
   };
 
   const renderSlots = () => {
     slotsContainer.innerHTML = '';
+    let activeEl: HTMLElement | null = null;
+
     tokens.forEach((token, idx) => {
       const div = document.createElement('div');
       div.className = 'char-slot';
@@ -70,9 +80,17 @@ function initApp() {
       } else if (idx === currentIndex) {
         div.classList.add('active');
         div.textContent = '✍️';
+        activeEl = div;
       }
       slotsContainer.appendChild(div);
     });
+
+    updateProgressBadge();
+
+    // 自動平滑捲動到當前正在書寫的格仔，成段幾十字都唔會寫出界
+    if (activeEl) {
+      (activeEl as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
   };
 
   const loadCurrentTarget = async () => {
@@ -81,16 +99,26 @@ function initApp() {
       currentIndex++;
     }
 
+    // 自由格數模式下，如果寫滿現有格仔，自動再加多 10 格（成段默幾長都得）
+    if (isFreeCountMode && currentIndex >= tokens.length) {
+      const extra = Array.from({ length: 10 }, () => ({
+        char: '✓',
+        isPunctuation: false,
+        revealed: false
+      }));
+      tokens.push(...extra);
+      showBanner('✨ 已自動為你加多 10 個格仔，繼續寫！');
+    }
+
     renderSlots();
 
-    if (currentIndex >= tokens.length) {
+    if (!isFreeCountMode && currentIndex >= tokens.length) {
       traceCanvas.clearData();
-      showBanner('🎉 叻仔！全部方格寫完啦！');
-      speakCantonese('好叻呀！全部寫完啦！');
+      showBanner('🎉 叻仔！成段默書全部完成啦！');
+      speakCantonese('好叻呀！成段默書寫啱晒！');
       return;
     }
 
-    // 模式二（免打字格數模式）：不設預定答案，直接顯示空白米字格等小朋友寫
     if (isFreeCountMode) {
       traceCanvas.clearData();
       return;
@@ -126,35 +154,36 @@ function initApp() {
 
   traceCanvas.setDictationCallbacks(handleCharacterSuccess, handleCharacterFail);
 
-  // 模式一：家長輸入課文 -> 自動收起輸入框防偷睇
+  // 模式一：家長輸入整段課文 -> 立即清空輸入框並收起面板防偷睇
   const startPassageDictation = () => {
     const raw = inputPassage.value.trim();
     if (!raw) {
-      showBanner('請先輸入默書課文，或者揀下面格數按鈕！', true);
+      showBanner('請先貼上默書課文！', true);
       return;
     }
     isFreeCountMode = false;
     fullPassageText = raw;
 
-    // 鎖定後立即清空輸入框並摺疊家長面板，確保小朋友睇唔到任何提示！
     inputPassage.value = '';
     parentPanel.open = false;
     audioToolbar.style.display = 'flex';
     btnHint.style.display = 'inline-block';
 
-    const punctRegex = /[，。！？、；：「」『』（）\s,.!?;:'"()]/;
-    tokens = Array.from(raw).map(ch => ({
-      char: ch,
-      isPunctuation: punctRegex.test(ch),
-      revealed: punctRegex.test(ch)
-    }));
+    const punctRegex = /[，。！？、；：「」『』（）\n\r\s,.!?;:'"()]/;
+    tokens = Array.from(raw)
+      .filter(ch => ch !== '\n' && ch !== '\r')
+      .map(ch => ({
+        char: ch,
+        isPunctuation: punctRegex.test(ch),
+        revealed: punctRegex.test(ch)
+      }));
 
     currentIndex = 0;
     loadCurrentTarget();
     speakCantonese(fullPassageText);
   };
 
-  // 模式二：免打字，直接設定格數（例如 5 個字）
+  // 模式二：免打字，整段空白方格（預設 20 格，鋪滿成個螢幕）
   const startFreeCountDictation = (count: number) => {
     isFreeCountMode = true;
     fullPassageText = '';
@@ -170,15 +199,12 @@ function initApp() {
 
     currentIndex = 0;
     loadCurrentTarget();
-    showBanner(`已設定 ${count} 個字格仔，請在下方米字格寫字！`);
   };
 
-  // 手動確認「寫好此字」（同時支援模式一強制過關及模式二完成單字）
   btnConfirmWord.addEventListener('click', () => {
     if (currentIndex >= tokens.length) return;
     if (isFreeCountMode) {
-      // 將手寫板筆跡轉成縮圖或標記完成，跳到下一格
-      tokens[currentIndex].char = '字';
+      tokens[currentIndex].char = '✓';
       tokens[currentIndex].revealed = true;
       traceCanvas.clearInk();
       currentIndex++;
@@ -191,7 +217,7 @@ function initApp() {
   btnStartPassage.addEventListener('click', startPassageDictation);
   presetBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-      const count = Number((btn as HTMLElement).dataset.count || 5);
+      const count = Number((btn as HTMLElement).dataset.count || 20);
       startFreeCountDictation(count);
     });
   });
@@ -205,8 +231,8 @@ function initApp() {
   btnHint.addEventListener('click', () => traceCanvas.flashHint(1800));
   btnClear.addEventListener('click', () => traceCanvas.clearInk());
 
-  // 預設啟動 5 個空白格仔，一打開就可以直接寫字，完全唔會劇透任何字！
-  startFreeCountDictation(5);
+  // 預設啟動 20 個空白格仔，盡用成個螢幕空間，一打開就可以直接默一段！
+  startFreeCountDictation(20);
 }
 
 window.addEventListener('DOMContentLoaded', initApp);
