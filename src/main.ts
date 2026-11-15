@@ -3,7 +3,7 @@ import type { DictationToken, Point, StrokeData, VerifyResult } from './types';
 import { TraceCanvas } from './ui/canvas-trace';
 import { DictationMatcher } from './core/dictation-matcher';
 
-// 精簡 72 個香港初小最高頻基礎字，確保冷啟動 500ms 內完成字庫載入
+// 精簡 72 個香港初小最高頻基礎字，確保冷啟動極速完成
 const CORE_COMMON_CHARS =
   '一二三四五六七八九十人口手目耳日月水火木金土山石田禾上下大小多少左右前後中出入來去你我他她的是在有和不這那好愛家爸媽哥弟姐妹老師同學朋友春夏天秋風雨花草樹木鳥魚心手足頭面眉眼鼻口書筆紙床牀光疑地霜舉望低思故鄉';
 
@@ -59,15 +59,27 @@ function initApp() {
   const charCache = new Map<string, StrokeData>();
   const baseUrl = import.meta.env.BASE_URL || '/';
 
+  // 帶超時保護的 fetch 封裝（兼容新舊 iPad）
+  const fetchWithTimeout = async (url: string, timeoutMs: number = 3000) => {
+    if (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal) {
+      return fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    }
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(id);
+    return response;
+  };
+
   const preloadCandidatePool = async () => {
     const uniqueChars = Array.from(new Set(Array.from(CORE_COMMON_CHARS)));
-    await Promise.all(
+    await Promise.allSettled(
       uniqueChars.map(async (ch) => {
         const code = ch.codePointAt(0);
         if (!code) return;
         const unicode = code.toString(16).toUpperCase().padStart(4, '0');
         try {
-          const res = await fetch(`${baseUrl}data/${unicode}.json`);
+          const res = await fetchWithTimeout(`${baseUrl}data/${unicode}.json`, 3000);
           if (res.ok) {
             const data: StrokeData = await res.json();
             if (data.medians && data.medians.length > 0) {
@@ -75,7 +87,7 @@ function initApp() {
               candidatePool.push(data);
             }
           }
-        } catch { /* ignore */ }
+        } catch { /* ignore timeouts */ }
       })
     );
     poolReady = true;
@@ -115,7 +127,6 @@ function initApp() {
       utterance.lang = 'zh-HK';
     }
 
-    // P1-3 守衛：只在目前沒有其他重要提示橫幅時才提示播放異常，絕不覆蓋成功回饋
     utterance.onerror = () => {
       if (feedbackBanner.style.display !== 'block') {
         showBanner('⚠️ 語音播放失敗，請檢查裝置靜音開關', true);
@@ -145,28 +156,52 @@ function initApp() {
       : `嚴格默書：${doneChars} / ${totalChars} 字`;
   };
 
+  // DOM 增量渲染，防止長課文整塊重繪閃爍
   const renderSlots = () => {
-    slotsContainer.innerHTML = '';
+    updateProgressBadge();
     let activeEl: HTMLElement | null = null;
 
-    tokens.forEach((token, idx) => {
-      const div = document.createElement('div');
-      div.className = 'char-slot';
-      if (token.isPunctuation) {
-        div.classList.add('punctuation');
-        div.textContent = token.char;
-      } else if (token.revealed) {
-        div.classList.add('revealed');
-        div.textContent = token.char;
-      } else if (idx === currentIndex) {
-        div.classList.add('active');
-        div.textContent = '✍️';
-        activeEl = div;
-      }
-      slotsContainer.appendChild(div);
-    });
+    if (slotsContainer.children.length === tokens.length) {
+      tokens.forEach((token, idx) => {
+        const div = slotsContainer.children[idx] as HTMLElement;
+        div.className = 'char-slot';
+        div.style.opacity = '1';
+        if (token.isPunctuation) {
+          div.classList.add('punctuation');
+          div.textContent = token.char;
+        } else if (token.revealed) {
+          div.classList.add('revealed');
+          if (token.skipped) div.style.opacity = '0.68';
+          div.textContent = token.char;
+        } else if (idx === currentIndex) {
+          div.classList.add('active');
+          div.textContent = '✍️';
+          activeEl = div;
+        } else {
+          div.textContent = '';
+        }
+      });
+    } else {
+      slotsContainer.innerHTML = '';
+      tokens.forEach((token, idx) => {
+        const div = document.createElement('div');
+        div.className = 'char-slot';
+        if (token.isPunctuation) {
+          div.classList.add('punctuation');
+          div.textContent = token.char;
+        } else if (token.revealed) {
+          div.classList.add('revealed');
+          if (token.skipped) div.style.opacity = '0.68';
+          div.textContent = token.char;
+        } else if (idx === currentIndex) {
+          div.classList.add('active');
+          div.textContent = '✍️';
+          activeEl = div;
+        }
+        slotsContainer.appendChild(div);
+      });
+    }
 
-    updateProgressBadge();
     if (activeEl) {
       (activeEl as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
@@ -235,7 +270,7 @@ function initApp() {
     const unicode = code.toString(16).toUpperCase().padStart(4, '0');
 
     try {
-      const res = await fetch(`${baseUrl}data/${unicode}.json`);
+      const res = await fetchWithTimeout(`${baseUrl}data/${unicode}.json`, 3000);
       if (reqId !== loadRequestId) return;
       if (!res.ok) throw new Error('Not found');
       const data: StrokeData = await res.json();
@@ -256,6 +291,12 @@ function initApp() {
       const doneChar = tokens[currentIndex].char;
       if (navigator.vibrate) navigator.vibrate(25);
       tokens[currentIndex].revealed = true;
+      
+      // 缺字友善放行標記為半透明，家長一眼即知
+      if (result.score === 0.8 && result.message.includes('寫好')) {
+        tokens[currentIndex].skipped = true;
+      }
+      
       showBanner(result.message);
       currentIndex++;
       speakCantonese(doneChar);
@@ -277,7 +318,6 @@ function initApp() {
     candidateBar.style.display = 'none';
     if (currentIndex >= tokens.length) return;
 
-    // P1-2 冷啟動字庫未載入完成前給予友善提示，避免誤判寫錯
     if (!poolReady && candidatePool.length === 0) {
       showBanner('⏳ 字庫載入中，請再等一秒...', false);
       traceCanvas.scheduleFailClear(1200);
@@ -334,6 +374,7 @@ function initApp() {
     isFreeWriteMode = false;
     fullPassageText = raw;
 
+    // 保留 inputPassage.value 方便家長隨時修改
     parentPanel.open = false;
     btnHint.style.display = 'inline-block';
     btnSpeakChar.style.display = 'inline-block';
@@ -386,6 +427,7 @@ function initApp() {
         if (parsed.passage && Array.isArray(parsed.tokens) && parsed.currentIndex < parsed.tokens.length) {
           isFreeWriteMode = false;
           fullPassageText = parsed.passage;
+          inputPassage.value = parsed.passage; // 恢復時同步還原家長輸入框內容
           tokens = parsed.tokens;
           currentIndex = parsed.currentIndex;
           btnHint.style.display = 'inline-block';
