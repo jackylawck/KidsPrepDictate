@@ -19,14 +19,13 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  /* 徹底杜絕 iOS 點擊時的灰色半透明閃爍框與長按選取 */
   -webkit-tap-highlight-color: transparent;
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
 }
 
-/* 保留輸入框的正常文字選取與 iOS 原生貼上選單 */
+/* 保留輸入框正常文字選取與 iOS 原生貼上選單 */
 textarea, input {
   -webkit-user-select: text;
   user-select: text;
@@ -39,21 +38,20 @@ html, body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang HK", "MingLiU", sans-serif;
   background-color: var(--bg-color);
   color: var(--text-main);
-  overscroll-behavior: none; /* 防止 Safari 下拉重整 */
+  overscroll-behavior: none;
 }
 
-/* === 2. 佈局與 Safe Area 適配 === */
+/* === 2. 單屏佈局與 Safe Area 適配 === */
 #app {
   display: flex;
   flex-direction: column;
   height: 100dvh;
   max-width: 820px;
   margin: 0 auto;
-  /* 兼容 iPhone 瀏海與底部 Home Bar，確保按鈕不被遮擋 */
-  padding: env(safe-area-inset-top, 8px) 
-           env(safe-area-inset-right, 10px) 
-           calc(env(safe-area-inset-bottom, 12px) + 8px) 
-           env(safe-area-inset-left, 10px);
+  padding: max(8px, env(safe-area-inset-top))
+           max(10px, env(safe-area-inset-right))
+           calc(max(10px, env(safe-area-inset-bottom)) + 4px)
+           max(10px, env(safe-area-inset-left));
   gap: 8px;
 }
 
@@ -70,8 +68,15 @@ header {
 }
 
 h1 {
-  font-size: 1.15rem;
+  font-size: 1.12rem;
   color: var(--primary-color);
+  white-space: nowrap;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .progress-pill {
@@ -80,12 +85,30 @@ h1 {
   color: var(--primary-color);
   border: 1px solid #ffcdd2;
   border-radius: 16px;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: bold;
   white-space: nowrap;
 }
 
-/* === 家長出題折疊面板 === */
+.btn-lang {
+  padding: 4px 10px;
+  background-color: #ffffff;
+  color: var(--primary-color);
+  border: 1.5px solid var(--primary-color);
+  border-radius: 16px;
+  font-size: 0.78rem;
+  font-weight: bold;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.btn-lang:active {
+  background-color: var(--primary-color);
+  color: #ffffff;
+}
+
+/* === 3. 家長出題折疊面板 === */
 .parent-panel {
   flex-shrink: 0;
   background: var(--surface-color);
@@ -97,7 +120,7 @@ h1 {
 .parent-panel summary {
   padding: 8px 12px;
   font-weight: bold;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   color: var(--primary-color);
   cursor: pointer;
 }
@@ -112,7 +135,7 @@ h1 {
 
 .parent-panel textarea {
   width: 100%;
-  margin: 6px 0 8px 0;
+  margin: 4px 0 8px 0;
   padding: 8px 10px;
   font-size: 1rem;
   border: 2px solid var(--primary-color);
@@ -127,23 +150,24 @@ h1 {
 
 .btn-primary {
   padding: 10px;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: bold;
   background-color: var(--primary-color);
   color: white;
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition: opacity 0.15s;
 }
+
 .btn-primary:active {
   opacity: 0.8;
 }
 
-/* === 上半部：整段課文彈出區 === */
+/* === 4. 上半部：整段課文彈出區 === */
 .passage-board-wrapper {
   flex: 1;
-  min-height: 100px;
+  min-height: 96px;
   background: var(--surface-color);
   padding: 10px;
   border-radius: var(--radius-lg);
@@ -157,7 +181,7 @@ h1 {
   flex-shrink: 0;
   display: flex;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   margin-bottom: 8px;
 }
 
@@ -167,10 +191,12 @@ h1 {
   color: var(--secondary-dark);
   border: 1px solid var(--secondary-color);
   border-radius: 16px;
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   font-weight: bold;
   cursor: pointer;
+  white-space: nowrap;
 }
+
 .btn-secondary:active {
   background-color: #b2dfdb;
 }
@@ -199,7 +225,6 @@ h1 {
   will-change: transform;
 }
 
-/* 3. 視覺引導：當前目標字格加入呼吸燈動畫 */
 .char-slot.active {
   border: 2px solid var(--primary-color);
   background: #ffebee;
@@ -222,11 +247,11 @@ h1 {
   color: var(--text-muted);
 }
 
-/* === 下半部：固定手寫板工作區 === */
+/* === 5. 下半部：固定手寫板工作區 === */
 .dictation-workspace {
   flex-shrink: 0;
   background: var(--surface-color);
-  padding: 10px 12px 12px 12px;
+  padding: 10px 10px 12px 10px;
   border-radius: var(--radius-lg);
   box-shadow: 0 -2px 10px rgba(0,0,0,0.06);
   display: flex;
@@ -240,11 +265,11 @@ h1 {
   top: -36px;
   left: 50%;
   transform: translateX(-50%);
-  width: 92%;
+  width: 94%;
   padding: 6px 12px;
   background-color: #323232;
   color: #ffffff;
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   font-weight: bold;
   border-radius: 20px;
   text-align: center;
@@ -266,13 +291,22 @@ h1 {
   margin-bottom: 8px;
 }
 
-/* 4. 手勢鎖定：防止雙指縮放與平移 */
+.candidate-bar button {
+  min-width: 36px;
+  min-height: 34px;
+  transition: transform 0.1s;
+}
+
+.candidate-bar button:active {
+  transform: scale(0.94);
+}
+
 .canvas-container {
   position: relative;
-  width: min(76vw, 42dvh, 360px);
-  height: min(76vw, 42dvh, 360px);
-  min-width: 240px;
-  min-height: 240px;
+  width: min(76vw, 41dvh, 360px);
+  height: min(76vw, 41dvh, 360px);
+  min-width: 230px;
+  min-height: 230px;
   background-color: #ffffff;
   border: 3px solid var(--primary-color);
   border-radius: 8px;
@@ -300,16 +334,17 @@ h1 {
   background: rgba(255, 255, 255, 0.9);
   padding: 2px 8px;
   border-radius: 10px;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: bold;
   color: var(--text-muted);
   z-index: 3;
   pointer-events: none;
 }
 
+/* 底部 4 顆操作按鈕：確保 iPhone 直屏下單行不擠壓換行 */
 .playback-controls {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   margin-top: 10px;
   justify-content: center;
   width: 100%;
@@ -317,16 +352,20 @@ h1 {
 
 .playback-controls button {
   flex: 1;
+  min-width: 0;
   max-width: 130px;
-  padding: 9px 8px;
+  padding: 9px 4px;
   background: white;
   border: 1px solid var(--border-color);
   border-radius: 8px;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   font-weight: bold;
   color: var(--text-main);
-  transition: opacity 0.2s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.15s;
 }
 
 .playback-controls button:active {
@@ -344,19 +383,26 @@ h1 {
   border-color: #ffcdd2;
 }
 
-/* === 5. GPU 硬體加速動畫 === */
+.playback-controls button.btn-secondary {
+  background-color: #f5f5f5;
+  color: #555555;
+  border-color: #d0d0d0;
+  border-radius: 8px;
+}
+
+/* === 6. GPU 硬體加速動畫 === */
 @keyframes popReveal {
-  0% { 
-    transform: scale3d(0.3, 0.3, 1); 
-    opacity: 0; 
+  0% {
+    transform: scale3d(0.3, 0.3, 1);
+    opacity: 0;
   }
-  70% { 
-    transform: scale3d(1.15, 1.15, 1); 
-    opacity: 1; 
+  70% {
+    transform: scale3d(1.15, 1.15, 1);
+    opacity: 1;
   }
-  100% { 
-    transform: scale3d(1, 1, 1); 
-    opacity: 1; 
+  100% {
+    transform: scale3d(1, 1, 1);
+    opacity: 1;
   }
 }
 
