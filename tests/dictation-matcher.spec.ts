@@ -1,117 +1,105 @@
-// src/core/dictation-matcher.ts
-import { StrokeData } from '../ui/canvas-trace';
+import { describe, it, expect } from 'vitest';
+import { DictationMatcher } from '../src/core/dictation-matcher';
+import type { Point, StrokeData } from '../src/types';
 
-export interface Point {
-  x: number; // 0~1024 標準座標
-  y: number; // 0~1024 Cartesian Y 軸 (底部為 0)
-}
+const YI_MEDIAN = [[100, 512], [300, 512], [500, 512], [700, 512], [900, 512]];
+const yiData: StrokeData = {
+  char: '一',
+  unicode: '4E00',
+  totalStrokes: 1,
+  strokes: ['M100,512 L900,512'],
+  medians: [YI_MEDIAN],
+};
 
-export class DictationMatcher {
-  public static screenToHanziCoords(
-    screenX: number,
-    screenY: number,
-    canvasWidth: number,
-    safeScale: number = 0.85
-  ): Point {
-    const baseScale = canvasWidth / 1024;
-    const finalScale = baseScale * safeScale;
-    const centerOffset = (canvasWidth * (1 - safeScale)) / 2;
+const shiData: StrokeData = {
+  char: '十',
+  unicode: '5341',
+  totalStrokes: 2,
+  strokes: ['M100,512 L900,512', 'M512,100 L512,900'],
+  medians: [
+    [[100, 512], [500, 512], [900, 512]],
+    [[512, 900], [512, 500], [512, 100]],
+  ],
+};
 
-    return {
-      x: (screenX - centerOffset) / finalScale,
-      y: 1024 - (screenY - centerOffset) / finalScale
+const line = (x1: number, y1: number, x2: number, y2: number, n = 12): Point[] =>
+  Array.from({ length: n }, (_, i) => ({
+    x: x1 + (x2 - x1) * (i / (n - 1)),
+    y: y1 + (y2 - y1) * (i / (n - 1)),
+  }));
+
+describe('DictationMatcher.verifyCharacterStrict', () => {
+  it('SUCCESS：正確筆順與位置', () => {
+    const res = DictationMatcher.verifyCharacterStrict([line(100, 512, 900, 512)], yiData);
+    expect(res.status).toBe('SUCCESS');
+    expect(res.score).toBeGreaterThan(0.64);
+  });
+
+  it('WRONG_STROKE_COUNT：少寫一筆', () => {
+    const res = DictationMatcher.verifyCharacterStrict([line(100, 512, 900, 512)], shiData);
+    expect(res.status).toBe('WRONG_STROKE_COUNT');
+    expect(res.message).toContain('2 畫');
+  });
+
+  it('WRONG_ORDER：字形正確但筆順倒轉', () => {
+    const strokes = [
+      line(512, 900, 512, 100),
+      line(100, 512, 900, 512),
+    ];
+    const res = DictationMatcher.verifyCharacterStrict(strokes, shiData);
+    expect(res.status).toBe('WRONG_ORDER');
+  });
+
+  it('WRONG_SHAPE：筆畫數正確但方向錯（由右至左）', () => {
+    const res = DictationMatcher.verifyCharacterStrict([line(900, 512, 100, 512)], yiData);
+    expect(['WRONG_SHAPE', 'WRONG_ORDER']).toContain(res.status);
+  });
+
+  it('TOO_SMALL：塗鴉面積過小', () => {
+    const tiny = [line(500, 500, 510, 510, 4)];
+    const res = DictationMatcher.verifyCharacterStrict(tiny, yiData);
+    expect(res.status).toBe('TOO_SMALL');
+  });
+
+  it('UNSUPPORTED：缺 medians 時誠實拒絕，不送分', () => {
+    const noMedian: StrokeData = {
+      char: '?',
+      unicode: '003F',
+      totalStrokes: 3,
+      strokes: [],
+      medians: [],
     };
-  }
+    const res = DictationMatcher.verifyCharacterStrict([line(100, 512, 900, 512)], noMedian);
+    expect(res.status).toBe('UNSUPPORTED');
+  });
 
-  /**
-   * 計算手寫筆畫與目標字 StrokeData 的幾何相似度分數 (0 ~ 1)
-   */
-  public static scoreCharacter(userStrokes: Point[][], targetData: StrokeData): number {
-    if (!userStrokes.length) return 0;
+  it('空筆畫應回傳非 SUCCESS 狀態', () => {
+    const res = DictationMatcher.verifyCharacterStrict([], yiData);
+    expect(res.status).not.toBe('SUCCESS');
+  });
+});
 
-    const targetCount = targetData.totalStrokes || targetData.strokes.length;
-    const userCount = userStrokes.length;
+describe('DictationMatcher.screenToHanziCoords', () => {
+  it('正方形畫布：中心點應落在 (512, 512)', () => {
+    const p = DictationMatcher.screenToHanziCoords(150, 150, 300, 300);
+    expect(p.x).toBeCloseTo(512, 0);
+    expect(p.y).toBeCloseTo(512, 0);
+  });
 
-    // 筆畫數差距超過 1 畫直接淘汰
-    const strokeDiff = Math.abs(userCount - targetCount);
-    if (strokeDiff > 1) return 0;
+  it('橫向畫布（w=600, h=300）：y 軸不應偏移', () => {
+    const p = DictationMatcher.screenToHanziCoords(300, 150, 600, 300);
+    expect(p.x).toBeCloseTo(512, 0);
+    expect(p.y).toBeCloseTo(512, 0);
+  });
+});
 
-    if (!targetData.medians || targetData.medians.length === 0) {
-      return this.checkBoundingBoxSanity(userStrokes) ? 0.5 : 0;
-    }
-
-    const compareCount = Math.min(userCount, targetData.medians.length);
-    let totalStrokeScore = 0;
-
-    for (let i = 0; i < compareCount; i++) {
-      const uStroke = userStrokes[i];
-      const tMedian = targetData.medians[i];
-      if (uStroke.length < 2 || tMedian.length < 2) continue;
-
-      const uStart = uStroke[0];
-      const uEnd = uStroke[uStroke.length - 1];
-      const tStart = { x: tMedian[0][0], y: tMedian[0][1] };
-      const tEnd = { x: tMedian[tMedian.length - 1][0], y: tMedian[tMedian.length - 1][1] };
-
-      const startDist = Math.hypot(uStart.x - tStart.x, uStart.y - tStart.y);
-      const endDist = Math.hypot(uEnd.x - tEnd.x, uEnd.y - tEnd.y);
-
-      // 距離分數 (0~1)：允許起終點偏差最多 320 單位
-      const posScore = Math.max(0, 1 - (startDist + endDist) / 640);
-
-      // 方向向量餘弦相似度 (-1 ~ 1)
-      const uVec = { x: uEnd.x - uStart.x, y: uEnd.y - uStart.y };
-      const tVec = { x: tEnd.x - tStart.x, y: tEnd.y - tStart.y };
-      const dot = uVec.x * tVec.x + uVec.y * tVec.y;
-      const mag = Math.hypot(uVec.x, uVec.y) * Math.hypot(tVec.x, tVec.y);
-      const cosSim = mag > 0 ? dot / mag : 1;
-
-      // 方向嚴重相反直接計 0 分
-      const dirScore = cosSim > 0.35 ? cosSim : 0;
-
-      totalStrokeScore += posScore * 0.55 + dirScore * 0.45;
-    }
-
-    // 筆畫數完全吻合有加分，差 1 畫扣減 15%
-    const countPenalty = strokeDiff === 0 ? 1.0 : 0.85;
-    return (totalStrokeScore / Math.max(userCount, targetCount)) * countPenalty;
-  }
-
-  /**
-   * 嚴格驗證模式（家長有出題時使用，絕不放水）
-   */
-  public static verifyCharacter(userStrokes: Point[][], targetData: StrokeData): boolean {
-    if (!this.checkBoundingBoxSanity(userStrokes)) return false;
-    const score = this.scoreCharacter(userStrokes, targetData);
-    return score >= 0.58;
-  }
-
-  /**
-   * 無家長模式：從候選字庫中找出最吻合的 Top N 個繁體字
-   */
-  public static recognizeTopCandidates(
-    userStrokes: Point[][],
-    candidatePool: StrokeData[],
-    topN: number = 5
-  ): string[] {
-    if (!this.checkBoundingBoxSanity(userStrokes)) return [];
-
-    const scored = candidatePool
-      .map(data => ({
-        char: data.char,
-        score: this.scoreCharacter(userStrokes, data)
-      }))
-      .filter(item => item.score > 0.35)
-      .sort((a, b) => b.score - a.score);
-
-    return scored.slice(0, topN).map(item => item.char);
-  }
-
-  private static checkBoundingBoxSanity(userStrokes: Point[][]): boolean {
-    const allPoints = userStrokes.flat();
-    if (allPoints.length < 5) return false;
-    const xs = allPoints.map(p => p.x);
-    const ys = allPoints.map(p => p.y);
-    return (Math.max(...xs) - Math.min(...xs) > 140) || (Math.max(...ys) - Math.min(...ys) > 140);
-  }
-}
+describe('DictationMatcher.recognizeTopCandidates', () => {
+  it('「一」字形應命中「一」且排第一', () => {
+    const result = DictationMatcher.recognizeTopCandidates(
+      [line(100, 512, 900, 512)],
+      [yiData, shiData],
+      3
+    );
+    expect(result[0]).toBe('一');
+  });
+});
