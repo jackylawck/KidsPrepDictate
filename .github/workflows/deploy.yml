@@ -44,7 +44,7 @@ jobs:
           pnpm run build:data
 
       - name: 6. TypeScript 嚴格型別檢查
-        run: pnpm exec tsc --noEmit
+        run: pnpm exec tsc -p tsconfig.json --noEmit
 
       - name: 7. 執行自動化門禁測試
         run: pnpm run test -- --run
