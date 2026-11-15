@@ -52,8 +52,14 @@ describe('KidsPrepDictate 手寫筆畫比對引擎測試', () => {
     const tinyDot: Point[][] = [[{ x: 500, y: 500 }, { x: 510, y: 510 }]];
     expect(DictationMatcher.verifyCharacter(tinyDot, rareChar)).toBe(false);
 
-    // 認真寫滿格子應通過
-    const validBox: Point[][] = [[{ x: 200, y: 800 }, { x: 800, y: 200 }]];
+    // 認真寫滿格子應通過（模擬真實書寫軌跡的連續取樣點）
+    const validBox: Point[][] = [[
+      { x: 200, y: 800 },
+      { x: 350, y: 650 },
+      { x: 500, y: 500 },
+      { x: 650, y: 350 },
+      { x: 800, y: 200 }
+    ]];
     expect(DictationMatcher.verifyCharacter(validBox, rareChar)).toBe(true);
   });
 });
