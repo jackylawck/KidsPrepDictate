@@ -11,55 +11,48 @@
   <body>
     <div id="app">
       <header>
-        <div class="header-top">
-          <h1>童温默書</h1>
-          <span class="progress-pill" id="progress-pill">第 1 字</span>
+        <div class="top-bar">
+          <h1>童温默書 KidsPrepDictate</h1>
+          <span id="progress-pill" class="progress-pill">無家長自由模式：已寫 0 字</span>
         </div>
       </header>
 
-      <!-- 家長出題折疊面板（開始後自動收起） -->
+      <!-- 家長出題與模式切換（可摺疊，開始後自動收起防偷睇） -->
       <details id="parent-panel" class="parent-panel">
-        <summary>👨‍👩‍👦 家長出題 / 設定整段課文（點擊展開）</summary>
+        <summary>📝 家長出題 / 切換模式（點擊展開）</summary>
         <div class="parent-controls">
           <div class="mode-group">
-            <label for="input-passage"><strong>模式一：貼上整段課文（隱藏答案報默）</strong></label>
-            <textarea id="input-passage" rows="3" placeholder="貼上整段課文或古詩（例：牀前明月光，疑是地上霜。舉頭望明月，低頭思故鄉。）"></textarea>
-            <button type="button" id="btn-start-passage" class="btn-primary full-width">鎖定整段課文並開始</button>
+            <button type="button" id="btn-free-mode" class="btn-secondary full-width">✍️ 切換至「無家長自由寫字模式」</button>
           </div>
-
           <div class="mode-group">
-            <label><strong>模式二：免打字・整段自由格仔（寫滿自動加格）</strong></label>
-            <div class="preset-btns">
-              <button type="button" class="btn-preset" data-count="12">12 格</button>
-              <button type="button" class="btn-preset" data-count="20">20 格</button>
-              <button type="button" class="btn-preset" data-count="30">30 格</button>
-              <button type="button" class="btn-preset" data-count="50">50 格</button>
-            </div>
+            <textarea id="input-passage" rows="3" placeholder="貼上整段默書課文（例：牀前明月光，疑是地上霜。）"></textarea>
+            <button type="button" id="btn-start-passage" class="btn-primary full-width">鎖定整段課文並開始默書</button>
           </div>
         </div>
       </details>
 
-      <!-- 上半部：盡用螢幕寬度的整段課文彈出區（可獨立滑動） -->
+      <!-- 上半部：整段課文逐字彈出區 -->
       <section class="passage-board-wrapper">
-        <div class="passage-toolbar" id="audio-toolbar">
-          <button type="button" id="btn-speak-sentence" class="btn-secondary">🔊 朗讀整段</button>
-          <button type="button" id="btn-speak-char" class="btn-secondary">🗣️ 讀當前字</button>
+        <div class="passage-toolbar">
+          <button type="button" id="btn-speak-sentence" class="btn-secondary">🔊 朗讀段落</button>
+          <button type="button" id="btn-speak-char" class="btn-secondary">🗣️ 讀出當前字</button>
         </div>
         <div id="sentence-slots" class="sentence-slots" aria-live="polite"></div>
       </section>
 
-      <!-- 下半部：固定在底部的手寫板工作區 -->
+      <!-- 下半部：固定手寫板工作區 -->
       <section class="dictation-workspace">
         <div id="feedback-banner" class="warning-banner" role="status"></div>
+        <div id="candidate-bar" class="candidate-bar" style="display: none;"></div>
         <div class="canvas-container">
-          <div id="stroke-badge" class="stroke-badge">請在格內寫字</div>
+          <div id="stroke-badge" class="stroke-badge">自由寫字（已寫 0 劃）</div>
           <canvas id="trace-canvas" class="canvas-layer trace-layer"></canvas>
           <canvas id="ink-canvas" class="canvas-layer ink-layer"></canvas>
         </div>
         <div class="playback-controls">
-          <button type="button" id="btn-confirm-word" class="btn-primary-solid">✅ 寫好此字</button>
+          <button type="button" id="btn-confirm-word" class="btn-primary-solid">✅ 確認寫完</button>
           <button type="button" id="btn-hint">💡 偷睇筆順</button>
-          <button type="button" id="btn-clear" class="btn-danger">🧹 重寫</button>
+          <button type="button" id="btn-clear" class="btn-danger">🧹 重寫本字</button>
         </div>
       </section>
     </div>
