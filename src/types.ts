@@ -1,4 +1,5 @@
 // src/types.ts
+import type { I18nKey } from './i18n';
 
 export interface Point {
   x: number; // 0~1024 標準座標
@@ -20,7 +21,7 @@ export interface DictationToken {
   char: string;
   isPunctuation: boolean;
   revealed: boolean;
-  skipped?: boolean; // 標記為「跳過／未掌握」，供家長檢視
+  skipped?: boolean;
 }
 
 export type VerifyStatus =
@@ -35,4 +36,6 @@ export interface VerifyResult {
   status: VerifyStatus;
   score: number;
   message: string;
+  i18nKey?: I18nKey;
+  meta?: Record<string, string | number>;
 }
