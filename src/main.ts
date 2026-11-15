@@ -3,8 +3,9 @@ import type { DictationToken, Point, StrokeData, VerifyResult } from './types';
 import { TraceCanvas } from './ui/canvas-trace';
 import { DictationMatcher } from './core/dictation-matcher';
 
+// 精簡 72 個香港初小最高頻基礎字，確保冷啟動 500ms 內完成字庫載入
 const CORE_COMMON_CHARS =
-  '一二三四五六七八九十人口手目耳日月水火木金土山石田禾上下大小多少左右前後中出入來去你我他她它們的是在有和與不這那好很太都也又就說看聽寫讀學愛家爸媽哥弟姐妹老師同學朋友春夏天秋風雨雪雲電花草樹木鳥魚蟲牛羊馬狗貓心手足頭面眉眼鼻口牙舌身衣食住行開關門窗桌椅書筆紙車船飛機紅黃藍綠黑白高矮長短快慢新舊冷熱早晚今明昨床牀光疑地霜舉望低思故鄉';
+  '一二三四五六七八九十人口手目耳日月水火木金土山石田禾上下大小多少左右前後中出入來去你我他她的是在有和不這那好愛家爸媽哥弟姐妹老師同學朋友春夏天秋風雨花草樹木鳥魚心手足頭面眉眼鼻口書筆紙床牀光疑地霜舉望低思故鄉';
 
 const STORAGE_KEY = 'kidsprep_session_v2';
 
@@ -17,7 +18,6 @@ function initApp() {
     synth.onvoiceschanged = () => synth.getVoices();
   }
 
-  // 在使用者首次點擊時發送靜音語音以解鎖 iOS Safari / Chrome 自動播放限制
   const unlockAudioEngine = () => {
     if (audioUnlocked || !synth) return;
     try {
@@ -51,7 +51,9 @@ function initApp() {
   let currentIndex = 0;
   let fullPassageText = '';
   let isFreeWriteMode = true;
-  let loadRequestId = 0; // 防止連續跳過造成 fetch 競態覆蓋
+  let loadRequestId = 0;
+  let bannerTimer: number | null = null;
+  let poolReady = false;
 
   const candidatePool: StrokeData[] = [];
   const charCache = new Map<string, StrokeData>();
@@ -76,13 +78,17 @@ function initApp() {
         } catch { /* ignore */ }
       })
     );
+    poolReady = true;
   };
 
   const showBanner = (msg: string, isError = false) => {
+    if (bannerTimer) clearTimeout(bannerTimer);
     feedbackBanner.textContent = msg;
     feedbackBanner.style.display = 'block';
     feedbackBanner.classList.toggle('warning-error', isError);
-    window.setTimeout(() => { feedbackBanner.style.display = 'none'; }, 2400);
+    bannerTimer = window.setTimeout(() => {
+      feedbackBanner.style.display = 'none';
+    }, 2400);
   };
 
   const speakCantonese = (text: string) => {
@@ -102,13 +108,18 @@ function initApp() {
     } else if (zhFallback) {
       utterance.lang = zhFallback.lang;
       utterance.voice = zhFallback;
-      showBanner('ℹ️ 裝置未安裝粵語語音，暫用普通話朗讀');
+      if (feedbackBanner.style.display !== 'block') {
+        showBanner('ℹ️ 裝置未安裝粵語語音，暫用普通話朗讀');
+      }
     } else {
       utterance.lang = 'zh-HK';
     }
 
+    // P1-3 守衛：只在目前沒有其他重要提示橫幅時才提示播放異常，絕不覆蓋成功回饋
     utterance.onerror = () => {
-      showBanner('⚠️ 語音播放失敗，請檢查裝置靜音開關', true);
+      if (feedbackBanner.style.display !== 'block') {
+        showBanner('⚠️ 語音播放失敗，請檢查裝置靜音開關', true);
+      }
     };
 
     synth.speak(utterance);
@@ -146,7 +157,6 @@ function initApp() {
         div.textContent = token.char;
       } else if (token.revealed) {
         div.classList.add('revealed');
-        if (token.skipped) div.style.opacity = '0.65';
         div.textContent = token.char;
       } else if (idx === currentIndex) {
         div.classList.add('active');
@@ -168,8 +178,6 @@ function initApp() {
       return;
     }
     candidateBar.style.display = 'flex';
-    candidateBar.style.gap = '6px';
-    candidateBar.style.marginBottom = '8px';
     candidateBar.innerHTML = '<span style="font-size:0.8rem;color:#666;align-self:center;">選字修正：</span>';
 
     candidates.forEach(ch => {
@@ -182,6 +190,7 @@ function initApp() {
           tokens[targetSlotIdx].char = ch;
           renderSlots();
           speakCantonese(ch);
+          candidateBar.style.display = 'none';
         }
       });
       candidateBar.appendChild(btn);
@@ -205,11 +214,7 @@ function initApp() {
 
     if (!isFreeWriteMode && currentIndex >= tokens.length) {
       localStorage.removeItem(STORAGE_KEY);
-      const skippedCount = tokens.filter(t => t.skipped).length;
-      const summary = skippedCount > 0
-        ? `🎉 完成默書！共有 ${skippedCount} 個跳過字需要再溫習`
-        : '🎉 滿分過關！成段默書全部筆畫正確！';
-      showBanner(summary);
+      showBanner('🎉 滿分過關！成段默書全部筆畫正確！');
       speakCantonese('好叻呀！成段默書完成啦！');
       return;
     }
@@ -231,7 +236,7 @@ function initApp() {
 
     try {
       const res = await fetch(`${baseUrl}data/${unicode}.json`);
-      if (reqId !== loadRequestId) return; // 已被後續跳過指令取代，直接作廢
+      if (reqId !== loadRequestId) return;
       if (!res.ok) throw new Error('Not found');
       const data: StrokeData = await res.json();
       if (reqId !== loadRequestId) return;
@@ -240,7 +245,6 @@ function initApp() {
       traceCanvas.loadDictationTarget(data);
     } catch {
       if (reqId !== loadRequestId) return;
-      // 缺字誠實標記無 medians，交由驗證器提示跳過，絕不送分
       traceCanvas.loadDictationTarget({ char: targetChar, unicode, totalStrokes: 0, strokes: [], medians: [] });
     }
   };
@@ -249,21 +253,38 @@ function initApp() {
     if (currentIndex >= tokens.length) return;
 
     if (result.status === 'SUCCESS') {
+      const doneChar = tokens[currentIndex].char;
       if (navigator.vibrate) navigator.vibrate(25);
       tokens[currentIndex].revealed = true;
       showBanner(result.message);
       currentIndex++;
+      speakCantonese(doneChar);
       loadCurrentTarget();
-    } else {
-      showBanner(result.message, true);
+      return;
+    }
+
+    const isUnderStroke =
+      result.status === 'WRONG_STROKE_COUNT' &&
+      traceCanvas.getUserStrokeCount() < traceCanvas.getTargetStrokeCount();
+
+    showBanner(result.message, true);
+    if (!isUnderStroke) {
       traceCanvas.scheduleFailClear(950);
     }
   };
 
   const handleFreeRecognize = (strokes: Point[][]) => {
+    candidateBar.style.display = 'none';
     if (currentIndex >= tokens.length) return;
-    const candidates = DictationMatcher.recognizeTopCandidates(strokes, candidatePool, 5);
 
+    // P1-2 冷啟動字庫未載入完成前給予友善提示，避免誤判寫錯
+    if (!poolReady && candidatePool.length === 0) {
+      showBanner('⏳ 字庫載入中，請再等一秒...', false);
+      traceCanvas.scheduleFailClear(1200);
+      return;
+    }
+
+    const candidates = DictationMatcher.recognizeTopCandidates(strokes, candidatePool, 5);
     if (candidates.length === 0) {
       showBanner('❌ 認唔到呢個字，請寫清楚啲再試！', true);
       traceCanvas.scheduleFailClear(900);
@@ -289,6 +310,7 @@ function initApp() {
   const startFreeMode = () => {
     isFreeWriteMode = true;
     fullPassageText = '';
+    inputPassage.value = '';
     parentPanel.open = false;
     btnHint.style.display = 'none';
     btnSpeakChar.style.display = 'none';
@@ -312,7 +334,6 @@ function initApp() {
     isFreeWriteMode = false;
     fullPassageText = raw;
 
-    inputPassage.value = '';
     parentPanel.open = false;
     btnHint.style.display = 'inline-block';
     btnSpeakChar.style.display = 'inline-block';
@@ -357,7 +378,6 @@ function initApp() {
   btnHint.addEventListener('click', () => traceCanvas.flashHint(1800));
   btnClear.addEventListener('click', () => traceCanvas.clearInk());
 
-  // 檢查是否有未完成的默書進度可斷點續寫
   const checkSavedSession = () => {
     try {
       const rawSaved = localStorage.getItem(STORAGE_KEY);
@@ -371,7 +391,7 @@ function initApp() {
           btnHint.style.display = 'inline-block';
           btnSpeakChar.style.display = 'inline-block';
           loadCurrentTarget();
-          showBanner('📌 已為你恢復上次未完成的默書進度（點擊「朗讀段落」聽聲）');
+          showBanner('📌 已恢復上次未完成的默書進度（點擊「朗讀段落」聽聲）');
           return;
         }
       }
