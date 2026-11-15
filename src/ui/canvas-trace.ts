@@ -106,7 +106,9 @@ export class TraceCanvas {
     this.inkCtx.scale(this.dpr, this.dpr);
     this.inkCtx.lineCap = 'round';
     this.inkCtx.lineJoin = 'round';
-    this.inkCtx.lineWidth = 14;
+    
+    // 優化：加粗至 16，配合視覺掃描引擎的光柵化特徵提取
+    this.inkCtx.lineWidth = 16;
     this.inkCtx.strokeStyle = 'rgba(25, 118, 210, 0.88)';
 
     this.buildStaticGridCache();
@@ -160,16 +162,23 @@ export class TraceCanvas {
     }, durationMs);
   }
 
+  // 優化：當目標筆畫為 0（缺字）時，顯示視覺掃描狀態
   public updateBadge() {
     if (!this.strokeBadge) return;
     if (this.isFreeWriteMode) {
       this.strokeBadge.textContent = t('badgeFree', { count: this.userStrokes.length });
     } else if (this.currentData) {
       const total = this.getTargetStrokeCount();
-      this.strokeBadge.textContent = t('badgeStrict', {
-        current: this.userStrokes.length,
-        total
-      });
+      if (total > 0) {
+        this.strokeBadge.textContent = t('badgeStrict', {
+          current: this.userStrokes.length,
+          total
+        });
+      } else {
+        this.strokeBadge.textContent = t('badgeVisualScan', {
+          current: this.userStrokes.length
+        });
+      }
     }
   }
 
@@ -251,7 +260,8 @@ export class TraceCanvas {
       }, 950);
     } else if (this.currentData && this.userStrokes.length >= 1) {
       const targetTotal = this.getTargetStrokeCount();
-      const delay = targetTotal > 0 && this.userStrokes.length >= targetTotal ? 850 : 1600;
+      // 優化：當目標為 0（缺字視覺掃描）或少寫時，等待 1400ms（原為 1600ms）
+      const delay = targetTotal > 0 && this.userStrokes.length >= targetTotal ? 850 : 1400;
       this.autoCheckTimer = window.setTimeout(() => {
         this.triggerVerificationNow();
       }, delay);
@@ -270,7 +280,6 @@ export class TraceCanvas {
     const start = (e: PointerEvent) => {
       e.preventDefault();
 
-      // 阻絕多點觸控與重疊落筆干擾：只認第一根手指
       if (!e.isPrimary || this.isDrawing) return;
       this.activePointerId = e.pointerId;
 
@@ -339,7 +348,6 @@ export class TraceCanvas {
       this.scheduleAutoVerify();
     };
 
-    // 手掌誤觸或系統手勢中斷時丟棄該筆，避免污染筆畫數
     const cancel = (e: PointerEvent) => {
       e.preventDefault();
       if (!this.isDrawing || e.pointerId !== this.activePointerId) return;
