@@ -17,9 +17,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ==========================================
-  # 階段一：乾淨室數據建置與自動化門禁測試
-  # ==========================================
   verify-and-build:
     name: 🛡️ 數據建置、型別檢查與乾淨室測試
     runs-on: ubuntu-latest
@@ -33,14 +30,13 @@ jobs:
         with:
           version: 9
 
-      - name: 3. 設定 Node.js 20 與快取
+      - name: 3. 設定 Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'pnpm'
 
       - name: 4. 安裝相依套件
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: 5. 編譯字典與三態治理數據管線
         run: |
@@ -50,10 +46,10 @@ jobs:
       - name: 6. TypeScript 嚴格型別檢查
         run: pnpm exec tsc --noEmit
 
-      - name: 7. 執行自動化門禁測試 (乾淨室防外洩 + 手寫比對算法)
+      - name: 7. 執行自動化門禁測試
         run: pnpm run test -- --run
 
-      - name: 8. 構建生產環境靜態檔案 (Vite Build)
+      - name: 8. 構建生產環境靜態檔案
         run: pnpm run build -- --base=/KidsPrepDictate/
 
       - name: 9. 上傳 GitHub Pages 構建產物
@@ -62,9 +58,6 @@ jobs:
         with:
           path: ./dist
 
-  # ==========================================
-  # 階段二：全部測試通過後自動部署至 GitHub Pages
-  # ==========================================
   deploy-pages:
     name: 🚀 部署至 GitHub Pages
     needs: verify-and-build
