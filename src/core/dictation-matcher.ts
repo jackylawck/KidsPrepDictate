@@ -26,36 +26,37 @@ export class DictationMatcher {
     if (points.length === 0) return [];
     if (points.length === 1) return Array(numPoints).fill(points[0]);
 
-    let totalLen = 0;
+    const cumDist: number[] = [0];
     for (let i = 1; i < points.length; i++) {
-      totalLen += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+      const d = Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+      cumDist.push(cumDist[i - 1] + d);
     }
+
+    const totalLen = cumDist[cumDist.length - 1];
     if (totalLen === 0) return Array(numPoints).fill(points[0]);
 
-    const step = totalLen / (numPoints - 1);
     const resampled: Point[] = [points[0]];
-    let accumDist = 0;
+    let segIdx = 1;
 
-    for (let i = 1; i < points.length; i++) {
-      const p1 = points[i - 1];
-      const p2 = points[i];
-      const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-      if (segLen === 0) continue;
-
-      while (accumDist + segLen >= step && resampled.length < numPoints) {
-        const t = (step - accumDist) / segLen;
-        resampled.push({
-          x: p1.x + t * (p2.x - p1.x),
-          y: p1.y + t * (p2.y - p1.y)
-        });
-        accumDist = 0;
+    for (let k = 1; k < numPoints - 1; k++) {
+      const targetDist = (totalLen * k) / (numPoints - 1);
+      while (segIdx < cumDist.length - 1 && cumDist[segIdx] < targetDist) {
+        segIdx++;
       }
-      accumDist += segLen;
+      const segStartDist = cumDist[segIdx - 1];
+      const segEndDist = cumDist[segIdx];
+      const segLen = segEndDist - segStartDist;
+      const t = segLen > 0 ? (targetDist - segStartDist) / segLen : 0;
+
+      const p1 = points[segIdx - 1];
+      const p2 = points[segIdx];
+      resampled.push({
+        x: p1.x + t * (p2.x - p1.x),
+        y: p1.y + t * (p2.y - p1.y)
+      });
     }
 
-    while (resampled.length < numPoints) {
-      resampled.push(points[points.length - 1]);
-    }
+    resampled.push(points[points.length - 1]);
     return resampled;
   }
 
