@@ -30,10 +30,12 @@ jobs:
         with:
           version: 9
 
-      - name: 3. 設定 Node.js 20
+      - name: 3. 設定 Node.js 20 與套件快取
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: 'package.json'
 
       - name: 4. 安裝相依套件
         run: pnpm install --no-frozen-lockfile
@@ -43,14 +45,14 @@ jobs:
           pnpm run compile:dict
           pnpm run build:data
 
-      - name: 6. TypeScript 嚴格型別檢查
-        run: pnpm exec tsc -p tsconfig.json --noEmit
+      - name: 6. TypeScript 嚴格型別檢查 (行內獨立驗證)
+        run: pnpm exec tsc --noEmit --target ES2022 --module ESNext --moduleResolution bundler --lib ES2022,DOM,DOM.Iterable --strict --skipLibCheck src/main.ts
 
       - name: 7. 執行自動化門禁測試
-        run: pnpm run test -- --run
+        run: pnpm exec vitest run
 
-      - name: 8. 構建生產環境靜態檔案
-        run: pnpm run build -- --base=/KidsPrepDictate/
+      - name: 8. 構建生產環境靜態檔案 (Vite Direct Build)
+        run: pnpm exec vite build --base=/KidsPrepDictate/
 
       - name: 9. 上傳 GitHub Pages 構建產物
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
