@@ -22,6 +22,7 @@ export const DICT = {
     progressStrict: '默書：{done} / {total} 字',
     badgeFree: '自由寫字（已寫 {count} 劃）',
     badgeStrict: '已寫 {current} / 目標 {total} 劃',
+    badgeVisualScan: '字形掃描（已寫 {current} 劃）', // 新增：雙引擎字形掃描狀態
     msgEmptyPassage: '請先貼上默書課文！',
     msgCompleted: '🎉 滿分過關！成段默書全部完成！',
     msgCompletedVoice: '好叻呀！成段默書完成啦！',
@@ -57,6 +58,7 @@ export const DICT = {
     progressStrict: 'Progress: {done} / {total}',
     badgeFree: 'Free Write ({count} strokes)',
     badgeStrict: 'Strokes: {current} / {total}',
+    badgeVisualScan: 'Glyph Scan ({current} strokes)', // 新增：雙引擎字形掃描狀態
     msgEmptyPassage: 'Please paste a passage first!',
     msgCompleted: '🎉 Awesome! Full passage completed!',
     msgCompletedVoice: '好叻呀！成段默書完成啦！',
@@ -103,7 +105,8 @@ export function t(key: I18nKey, vars?: Record<string, string | number>): string 
   let text: string = DICT[currentLang][key] || DICT.zh[key];
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
-      text = text.replace(`{${k}}`, String(v));
+      // 優化：使用 replaceAll 確保同一個變數出現多次時全數替換
+      text = text.replaceAll(`{${k}}`, String(v));
     }
   }
   return text;
