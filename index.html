@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>童温默書 KidsPrepDictate | 專為香港學童設計的互動温默書工具</title>
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#b71c1c" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>童温默書 KidsPrepDictate</h1>
+        <p>聽聲寫字，寫啱即刻彈出課文！</p>
+      </header>
+
+      <main>
+        <!-- 家長出題區 -->
+        <div class="search-section">
+          <div class="search-bar">
+            <input type="text" id="input-passage" placeholder="輸入默書課文（例：牀前明月光）" value="牀前明月光" />
+            <button type="button" id="btn-start-dictation" class="btn-primary">開始默書</button>
+          </div>
+        </div>
+
+        <!-- 上方課文逐字彈出區 -->
+        <div class="passage-board-wrapper">
+          <div class="passage-toolbar">
+            <button type="button" id="btn-speak-sentence" class="btn-secondary">🔊 朗讀整句 (粵語)</button>
+            <button type="button" id="btn-speak-char" class="btn-secondary">🗣️ 讀出當前字</button>
+          </div>
+          <div id="sentence-slots" class="sentence-slots" aria-live="polite"></div>
+        </div>
+
+        <!-- 下方手寫板與控制區 -->
+        <div class="dictation-workspace">
+          <div id="feedback-banner" class="warning-banner" role="status"></div>
+          <div class="canvas-container">
+            <div id="stroke-badge" class="stroke-badge">準備默書</div>
+            <canvas id="trace-canvas" class="canvas-layer trace-layer"></canvas>
+            <canvas id="ink-canvas" class="canvas-layer ink-layer"></canvas>
+          </div>
+          <div class="playback-controls">
+            <button type="button" id="btn-hint">💡 偷睇筆順</button>
+            <button type="button" id="btn-skip">⏭️ 跳過此字</button>
+            <button type="button" id="btn-clear" class="btn-danger">🧹 重寫本字</button>
+          </div>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
