@@ -67,37 +67,34 @@ export class DictationMatcher {
     const uSampled = this.resampleStroke(userStroke, 8);
     const tSampled = this.resampleStroke(targetPts, 8);
 
+    // 放寬起終點容差至 280 單位，貼合小朋友手寫大小偏差
     const startDist = Math.hypot(uSampled[0].x - tSampled[0].x, uSampled[0].y - tSampled[0].y);
     const endDist = Math.hypot(uSampled[7].x - tSampled[7].x, uSampled[7].y - tSampled[7].y);
-    if (startDist > 200 || endDist > 200) return 0;
+    if (startDist > 280 || endDist > 280) return 0;
 
     let midDistSum = 0;
     for (let k = 1; k <= 6; k++) {
       midDistSum += Math.hypot(uSampled[k].x - tSampled[k].x, uSampled[k].y - tSampled[k].y);
     }
     const avgMidDist = midDistSum / 6;
-    const shapeScore = Math.max(0, 1 - (startDist * 0.35 + avgMidDist * 0.3 + endDist * 0.35) / 200);
+    const shapeScore = Math.max(0, 1 - (startDist * 0.35 + avgMidDist * 0.3 + endDist * 0.35) / 280);
 
+    // 放寬方向向量容差至 cosSim >= 0.45（允許自然傾斜與弧度）
     const uVec = { x: uSampled[7].x - uSampled[0].x, y: uSampled[7].y - uSampled[0].y };
     const tVec = { x: tSampled[7].x - tSampled[0].x, y: tSampled[7].y - tSampled[0].y };
     const dot = uVec.x * tVec.x + uVec.y * tVec.y;
     const mag = Math.hypot(uVec.x, uVec.y) * Math.hypot(tVec.x, tVec.y);
     const cosSim = mag > 0 ? dot / mag : 1;
 
-    if (cosSim < 0.68) return 0;
+    if (cosSim < 0.45) return 0;
 
     return shapeScore * 0.65 + cosSim * 0.35;
   }
 
+  /**
+   * 親子友善比對：只要大概寫出字形就過關，不強迫嚴格筆順，缺字亦自動放行
+   */
   public static verifyCharacterStrict(userStrokes: Point[][], targetData: StrokeData): VerifyResult {
-    if (!targetData.medians || targetData.medians.length === 0) {
-      return {
-        status: 'UNSUPPORTED',
-        score: 0,
-        message: `⚠️ 字庫暫未收錄「${targetData.char}」筆順幾何，請重寫或切換模式`
-      };
-    }
-
     if (!this.checkBoundingBoxSanity(userStrokes)) {
       return {
         status: 'TOO_SMALL',
@@ -106,24 +103,36 @@ export class DictationMatcher {
       };
     }
 
-    const targetCount = targetData.medians.length;
-    const userCount = userStrokes.length;
-
-    if (userCount !== targetCount) {
+    // 若字庫暫無該字筆順數據，只要小朋友有認真寫字就直接過關，唔會卡死
+    if (!targetData.medians || targetData.medians.length === 0) {
       return {
-        status: 'WRONG_STROKE_COUNT',
-        score: 0,
-        message: `❌ 筆畫數唔啱：「${targetData.char}」有 ${targetCount} 畫，你寫咗 ${userCount} 畫`
+        status: 'SUCCESS',
+        score: 0.8,
+        message: `✅ 寫好「${targetData.char}」字啦！`
       };
     }
 
+    const targetCount = targetData.medians.length;
+    const userCount = userStrokes.length;
+
+    // 允許筆畫數 ±1 畫誤差（小朋友有時會連筆或分開寫折筆）
+    if (Math.abs(userCount - targetCount) > 1) {
+      return {
+        status: 'WRONG_STROKE_COUNT',
+        score: 0,
+        message: `❌ 筆畫數差咗啲：「${targetData.char}」約 ${targetCount} 畫，你寫咗 ${userCount} 畫`
+      };
+    }
+
+    // 1. 先計按順序分數
+    const compareLen = Math.min(userCount, targetCount);
     let inOrderScoreSum = 0;
-    for (let i = 0; i < targetCount; i++) {
+    for (let i = 0; i < compareLen; i++) {
       inOrderScoreSum += this.scoreSingleStroke(userStrokes[i], targetData.medians[i]);
     }
-    const inOrderAvg = inOrderScoreSum / targetCount;
+    const inOrderAvg = inOrderScoreSum / Math.max(userCount, targetCount);
 
-    if (inOrderAvg >= 0.64) {
+    if (inOrderAvg >= 0.48) {
       return {
         status: 'SUCCESS',
         score: inOrderAvg,
@@ -131,6 +140,7 @@ export class DictationMatcher {
       };
     }
 
+    // 2. 無順序配對（Order-Tolerant）：筆順掉轉但字形大概啱，一樣直接放行過關！
     const usedTargetIdx = new Set<number>();
     let unorderedScoreSum = 0;
 
@@ -151,19 +161,19 @@ export class DictationMatcher {
       }
     }
 
-    const unorderedAvg = unorderedScoreSum / targetCount;
-    if (unorderedAvg >= 0.64) {
+    const unorderedAvg = unorderedScoreSum / Math.max(userCount, targetCount);
+    if (unorderedAvg >= 0.48) {
       return {
-        status: 'WRONG_ORDER',
+        status: 'SUCCESS',
         score: unorderedAvg,
-        message: '⚠️ 字形啱咗，但筆順掉轉咗！試下按「偷睇筆順」再寫'
+        message: `✅ 寫啱咗「${targetData.char}」字！（留意下筆順會仲靚）`
       };
     }
 
     return {
       status: 'WRONG_SHAPE',
-      score: inOrderAvg,
-      message: '❌ 字形或運筆方向唔對，請重寫本字！'
+      score: Math.max(inOrderAvg, unorderedAvg),
+      message: '❌ 字形爭少少，再試下或者按「重寫本字」啦！'
     };
   }
 
@@ -186,10 +196,10 @@ export class DictationMatcher {
       for (let i = 0; i < compareLen; i++) {
         sum += this.scoreSingleStroke(userStrokes[i], data.medians[i]);
       }
-      const penalty = userCount === targetCount ? 1.0 : 0.85;
+      const penalty = userCount === targetCount ? 1.0 : 0.88;
       const finalScore = (sum / Math.max(userCount, targetCount)) * penalty;
 
-      if (finalScore >= 0.45) {
+      if (finalScore >= 0.4) {
         scored.push({ char: data.char, score: finalScore });
       }
     }
@@ -213,6 +223,6 @@ export class DictationMatcher {
       }
     }
     if (count < 4) return false;
-    return (maxX - minX > 160) || (maxY - minY > 160);
+    return (maxX - minX > 150) || (maxY - minY > 150);
   }
 }
