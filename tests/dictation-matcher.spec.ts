@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { DictationMatcher } from '../src/core/dictation-matcher';
 import type { Point, StrokeData } from '../src/types';
 
-// 構造「一」字：單橫，中位線由左至右
 const YI_MEDIAN = [[100, 512], [300, 512], [500, 512], [700, 512], [900, 512]];
 const yiData: StrokeData = {
   char: '一',
@@ -12,7 +11,6 @@ const yiData: StrokeData = {
   medians: [YI_MEDIAN],
 };
 
-// 構造「十」字：先橫後豎，2 畫
 const shiData: StrokeData = {
   char: '十',
   unicode: '5341',
@@ -24,7 +22,6 @@ const shiData: StrokeData = {
   ],
 };
 
-// 構造「三」字：測試筆畫數差距過大用
 const threeStrokesData: StrokeData = {
   char: '三',
   unicode: '4E09',
@@ -43,7 +40,7 @@ const line = (x1: number, y1: number, x2: number, y2: number, n = 12): Point[] =
     y: y1 + (y2 - y1) * (i / (n - 1)),
   }));
 
-describe('DictationMatcher.verifyCharacterStrict（親子友善版）', () => {
+describe('DictationMatcher.verifyCharacterStrict（雙引擎版）', () => {
   it('SUCCESS：正確筆順與位置', () => {
     const res = DictationMatcher.verifyCharacterStrict([line(100, 512, 900, 512)], yiData);
     expect(res.status).toBe('SUCCESS');
@@ -52,16 +49,15 @@ describe('DictationMatcher.verifyCharacterStrict（親子友善版）', () => {
 
   it('SUCCESS（無順序容錯）：字形正確即使筆順倒轉亦友善放行', () => {
     const strokes = [
-      line(512, 900, 512, 100), // 先豎
-      line(100, 512, 900, 512), // 後橫
+      line(512, 900, 512, 100),
+      line(100, 512, 900, 512),
     ];
     const res = DictationMatcher.verifyCharacterStrict(strokes, shiData);
     expect(res.status).toBe('SUCCESS');
-    expect(res.message).toContain('留意下筆順'); // 會有溫馨提示
+    expect(res.message).toContain('留意下筆順');
   });
 
-  it('WRONG_STROKE_COUNT：筆畫數差距大於 1 畫時才擋下', () => {
-    // 寫 1 畫，目標 3 畫，相差 2 畫（不允許）
+  it('WRONG_STROKE_COUNT：筆畫數差距大於 1 畫時擋下', () => {
     const res = DictationMatcher.verifyCharacterStrict([line(100, 512, 900, 512)], threeStrokesData);
     expect(res.status).toBe('WRONG_STROKE_COUNT');
   });
@@ -77,7 +73,7 @@ describe('DictationMatcher.verifyCharacterStrict（親子友善版）', () => {
     expect(res.status).toBe('TOO_SMALL');
   });
 
-  it('SUCCESS（缺字放行）：缺 medians 時只要有認真寫就直接過關', () => {
+  it('UNSUPPORTED（無 DOM 環境且缺 medians）：絕不無條件放水過關', () => {
     const noMedian: StrokeData = {
       char: '晚',
       unicode: '665A',
@@ -86,8 +82,7 @@ describe('DictationMatcher.verifyCharacterStrict（親子友善版）', () => {
       medians: [],
     };
     const res = DictationMatcher.verifyCharacterStrict([line(100, 512, 900, 512)], noMedian);
-    expect(res.status).toBe('SUCCESS');
-    expect(res.score).toBe(0.8);
+    expect(res.status).toBe('UNSUPPORTED');
   });
 });
 
