@@ -2,8 +2,8 @@
 import type { DictationToken, Point, StrokeData, VerifyResult } from './types';
 import { TraceCanvas } from './ui/canvas-trace';
 import { DictationMatcher } from './core/dictation-matcher';
+import { getLang, setLang, t, type I18nKey } from './i18n';
 
-// 精簡 72 個香港初小最高頻基礎字，確保冷啟動極速完成
 const CORE_COMMON_CHARS =
   '一二三四五六七八九十人口手目耳日月水火木金土山石田禾上下大小多少左右前後中出入來去你我他她的是在有和不這那好愛家爸媽哥弟姐妹老師同學朋友春夏天秋風雨花草樹木鳥魚心手足頭面眉眼鼻口書筆紙床牀光疑地霜舉望低思故鄉';
 
@@ -31,6 +31,7 @@ function initApp() {
 
   const traceCanvas = new TraceCanvas('trace-canvas', 'ink-canvas', 'stroke-badge');
 
+  const btnLangToggle = document.getElementById('btn-lang-toggle') as HTMLButtonElement;
   const parentPanel = document.getElementById('parent-panel') as HTMLDetailsElement;
   const btnFreeMode = document.getElementById('btn-free-mode') as HTMLButtonElement;
   const inputPassage = document.getElementById('input-passage') as HTMLTextAreaElement;
@@ -46,6 +47,7 @@ function initApp() {
   const btnConfirmWord = document.getElementById('btn-confirm-word') as HTMLButtonElement;
   const btnHint = document.getElementById('btn-hint') as HTMLButtonElement;
   const btnClear = document.getElementById('btn-clear') as HTMLButtonElement;
+  const btnSkip = document.getElementById('btn-skip') as HTMLButtonElement;
 
   let tokens: DictationToken[] = [];
   let currentIndex = 0;
@@ -59,7 +61,34 @@ function initApp() {
   const charCache = new Map<string, StrokeData>();
   const baseUrl = import.meta.env.BASE_URL || '/';
 
-  // 帶超時保護的 fetch 封裝（兼容新舊 iPad）
+  const updateProgressBadge = () => {
+    const totalChars = tokens.filter(t => !t.isPunctuation).length;
+    const doneChars = tokens.filter(t => !t.isPunctuation && t.revealed).length;
+    progressPill.textContent = isFreeWriteMode
+      ? t('progressFree', { done: doneChars })
+      : t('progressStrict', { done: doneChars, total: totalChars });
+  };
+
+  // 套用全頁多語系文字（含靜態元素、Placeholder 與動態狀態列）
+  const applyLocalization = () => {
+    document.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => {
+      const key = el.dataset.i18n as I18nKey;
+      if (key) el.textContent = t(key);
+    });
+    document.querySelectorAll<HTMLTextAreaElement | HTMLInputElement>('[data-i18n-placeholder]').forEach((el) => {
+      const key = el.dataset.i18nPlaceholder as I18nKey;
+      if (key) el.placeholder = t(key);
+    });
+    btnLangToggle.textContent = t('langBtn');
+    updateProgressBadge();
+    traceCanvas.updateBadge();
+  };
+
+  btnLangToggle.addEventListener('click', () => {
+    setLang(getLang() === 'zh' ? 'en' : 'zh');
+    applyLocalization();
+  });
+
   const fetchWithTimeout = async (url: string, timeoutMs: number = 3000) => {
     if (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal) {
       return fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
@@ -87,7 +116,7 @@ function initApp() {
               candidatePool.push(data);
             }
           }
-        } catch { /* ignore timeouts */ }
+        } catch { /* ignore */ }
       })
     );
     poolReady = true;
@@ -121,7 +150,7 @@ function initApp() {
       utterance.lang = zhFallback.lang;
       utterance.voice = zhFallback;
       if (feedbackBanner.style.display !== 'block') {
-        showBanner('ℹ️ 裝置未安裝粵語語音，暫用普通話朗讀');
+        showBanner(t('msgVoiceFallback'));
       }
     } else {
       utterance.lang = 'zh-HK';
@@ -129,7 +158,7 @@ function initApp() {
 
     utterance.onerror = () => {
       if (feedbackBanner.style.display !== 'block') {
-        showBanner('⚠️ 語音播放失敗，請檢查裝置靜音開關', true);
+        showBanner(t('msgVoiceError'), true);
       }
     };
 
@@ -148,15 +177,6 @@ function initApp() {
     } catch { /* ignore */ }
   };
 
-  const updateProgressBadge = () => {
-    const totalChars = tokens.filter(t => !t.isPunctuation).length;
-    const doneChars = tokens.filter(t => !t.isPunctuation && t.revealed).length;
-    progressPill.textContent = isFreeWriteMode
-      ? `無家長自由模式：已寫 ${doneChars} 字`
-      : `嚴格默書：${doneChars} / ${totalChars} 字`;
-  };
-
-  // DOM 增量渲染，防止長課文整塊重繪閃爍
   const renderSlots = () => {
     updateProgressBadge();
     let activeEl: HTMLElement | null = null;
@@ -213,7 +233,7 @@ function initApp() {
       return;
     }
     candidateBar.style.display = 'flex';
-    candidateBar.innerHTML = '<span style="font-size:0.8rem;color:#666;align-self:center;">選字修正：</span>';
+    candidateBar.innerHTML = `<span style="font-size:0.8rem;color:#666;align-self:center;">${t('candidateLabel')}</span>`;
 
     candidates.forEach(ch => {
       const btn = document.createElement('button');
@@ -249,8 +269,8 @@ function initApp() {
 
     if (!isFreeWriteMode && currentIndex >= tokens.length) {
       localStorage.removeItem(STORAGE_KEY);
-      showBanner('🎉 滿分過關！成段默書全部筆畫正確！');
-      speakCantonese('好叻呀！成段默書完成啦！');
+      showBanner(t('msgCompleted'));
+      speakCantonese(t('msgCompletedVoice'));
       return;
     }
 
@@ -286,18 +306,18 @@ function initApp() {
 
   const handleStrictResult = (result: VerifyResult) => {
     if (currentIndex >= tokens.length) return;
+    const localizedMsg = result.i18nKey ? t(result.i18nKey, result.meta) : result.message;
 
     if (result.status === 'SUCCESS') {
       const doneChar = tokens[currentIndex].char;
       if (navigator.vibrate) navigator.vibrate(25);
       tokens[currentIndex].revealed = true;
-      
-      // 缺字友善放行標記為半透明，家長一眼即知
-      if (result.score === 0.8 && result.message.includes('寫好')) {
+
+      if (result.i18nKey === 'verifyFallbackSuccess') {
         tokens[currentIndex].skipped = true;
       }
-      
-      showBanner(result.message);
+
+      showBanner(localizedMsg);
       currentIndex++;
       speakCantonese(doneChar);
       loadCurrentTarget();
@@ -308,7 +328,7 @@ function initApp() {
       result.status === 'WRONG_STROKE_COUNT' &&
       traceCanvas.getUserStrokeCount() < traceCanvas.getTargetStrokeCount();
 
-    showBanner(result.message, true);
+    showBanner(localizedMsg, true);
     if (!isUnderStroke) {
       traceCanvas.scheduleFailClear(950);
     }
@@ -319,14 +339,14 @@ function initApp() {
     if (currentIndex >= tokens.length) return;
 
     if (!poolReady && candidatePool.length === 0) {
-      showBanner('⏳ 字庫載入中，請再等一秒...', false);
+      showBanner(t('msgPoolLoading'), false);
       traceCanvas.scheduleFailClear(1200);
       return;
     }
 
     const candidates = DictationMatcher.recognizeTopCandidates(strokes, candidatePool, 5);
     if (candidates.length === 0) {
-      showBanner('❌ 認唔到呢個字，請寫清楚啲再試！', true);
+      showBanner(t('msgFreeNotFound'), true);
       traceCanvas.scheduleFailClear(900);
       return;
     }
@@ -338,7 +358,7 @@ function initApp() {
     tokens[writtenSlotIdx].revealed = true;
 
     renderCandidateBar(candidates, writtenSlotIdx);
-    showBanner(`✨ 認到「${bestMatch}」字！`);
+    showBanner(t('msgFreeMatched', { char: bestMatch }));
     speakCantonese(bestMatch);
 
     currentIndex++;
@@ -354,6 +374,7 @@ function initApp() {
     parentPanel.open = false;
     btnHint.style.display = 'none';
     btnSpeakChar.style.display = 'none';
+    btnSkip.style.display = 'none';
     candidateBar.style.display = 'none';
 
     tokens = Array.from({ length: 20 }, () => ({
@@ -368,16 +389,16 @@ function initApp() {
   const startPassageDictation = (rawText: string, shouldSpeak: boolean = true) => {
     const raw = rawText.trim();
     if (!raw) {
-      showBanner('請先貼上默書課文！', true);
+      showBanner(t('msgEmptyPassage'), true);
       return;
     }
     isFreeWriteMode = false;
     fullPassageText = raw;
 
-    // 保留 inputPassage.value 方便家長隨時修改
     parentPanel.open = false;
     btnHint.style.display = 'inline-block';
     btnSpeakChar.style.display = 'inline-block';
+    btnSkip.style.display = 'inline-block';
     candidateBar.style.display = 'none';
 
     const punctRegex = /[，。！？、；：「」『』（）\n\r\s,.!?;:'"()]/;
@@ -419,6 +440,17 @@ function initApp() {
   btnHint.addEventListener('click', () => traceCanvas.flashHint(1800));
   btnClear.addEventListener('click', () => traceCanvas.clearInk());
 
+  btnSkip.addEventListener('click', () => {
+    if (isFreeWriteMode || currentIndex >= tokens.length) return;
+    const skippedChar = tokens[currentIndex].char;
+    tokens[currentIndex].revealed = true;
+    tokens[currentIndex].skipped = true;
+    showBanner(t('msgSkipped', { char: skippedChar }));
+    traceCanvas.clearInk();
+    currentIndex++;
+    loadCurrentTarget();
+  });
+
   const checkSavedSession = () => {
     try {
       const rawSaved = localStorage.getItem(STORAGE_KEY);
@@ -427,13 +459,14 @@ function initApp() {
         if (parsed.passage && Array.isArray(parsed.tokens) && parsed.currentIndex < parsed.tokens.length) {
           isFreeWriteMode = false;
           fullPassageText = parsed.passage;
-          inputPassage.value = parsed.passage; // 恢復時同步還原家長輸入框內容
+          inputPassage.value = parsed.passage;
           tokens = parsed.tokens;
           currentIndex = parsed.currentIndex;
           btnHint.style.display = 'inline-block';
           btnSpeakChar.style.display = 'inline-block';
+          btnSkip.style.display = 'inline-block';
           loadCurrentTarget();
-          showBanner('📌 已恢復上次未完成的默書進度（點擊「朗讀段落」聽聲）');
+          showBanner(t('msgRestored'));
           return;
         }
       }
@@ -442,6 +475,7 @@ function initApp() {
     startFreeMode();
   };
 
+  applyLocalization();
   preloadCandidatePool();
   checkSavedSession();
 }
