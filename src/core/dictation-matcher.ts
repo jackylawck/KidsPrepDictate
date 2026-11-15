@@ -1,5 +1,6 @@
 // src/core/dictation-matcher.ts
 import type { Point, StrokeData, VerifyResult } from '../types';
+import { t } from '../i18n';
 
 export class DictationMatcher {
   public static screenToHanziCoords(
@@ -67,7 +68,6 @@ export class DictationMatcher {
     const uSampled = this.resampleStroke(userStroke, 8);
     const tSampled = this.resampleStroke(targetPts, 8);
 
-    // 放寬起終點容差至 280 單位，貼合小朋友手寫大小偏差
     const startDist = Math.hypot(uSampled[0].x - tSampled[0].x, uSampled[0].y - tSampled[0].y);
     const endDist = Math.hypot(uSampled[7].x - tSampled[7].x, uSampled[7].y - tSampled[7].y);
     if (startDist > 280 || endDist > 280) return 0;
@@ -79,7 +79,6 @@ export class DictationMatcher {
     const avgMidDist = midDistSum / 6;
     const shapeScore = Math.max(0, 1 - (startDist * 0.35 + avgMidDist * 0.3 + endDist * 0.35) / 280);
 
-    // 放寬方向向量容差至 cosSim >= 0.45（允許自然傾斜與弧度）
     const uVec = { x: uSampled[7].x - uSampled[0].x, y: uSampled[7].y - uSampled[0].y };
     const tVec = { x: tSampled[7].x - tSampled[0].x, y: tSampled[7].y - tSampled[0].y };
     const dot = uVec.x * tVec.x + uVec.y * tVec.y;
@@ -91,40 +90,41 @@ export class DictationMatcher {
     return shapeScore * 0.65 + cosSim * 0.35;
   }
 
-  /**
-   * 親子友善比對：只要大概寫出字形就過關，不強迫嚴格筆順，缺字亦自動放行
-   */
   public static verifyCharacterStrict(userStrokes: Point[][], targetData: StrokeData): VerifyResult {
     if (!this.checkBoundingBoxSanity(userStrokes)) {
       return {
         status: 'TOO_SMALL',
         score: 0,
-        message: '🔍 寫得太細啦，請喺米字格中間寫大隻啲！'
+        i18nKey: 'verifyTooSmall',
+        message: t('verifyTooSmall')
       };
     }
 
-    // 若字庫暫無該字筆順數據，只要小朋友有認真寫字就直接過關，唔會卡死
     if (!targetData.medians || targetData.medians.length === 0) {
+      const meta = { char: targetData.char };
       return {
         status: 'SUCCESS',
         score: 0.8,
-        message: `✅ 寫好「${targetData.char}」字啦！`
+        i18nKey: 'verifyFallbackSuccess',
+        meta,
+        message: t('verifyFallbackSuccess', meta)
       };
     }
 
     const targetCount = targetData.medians.length;
     const userCount = userStrokes.length;
 
-    // 允許筆畫數 ±1 畫誤差（小朋友有時會連筆或分開寫折筆）
     if (Math.abs(userCount - targetCount) > 1) {
+      const meta = { char: targetData.char, target: targetCount, user: userCount };
       return {
         status: 'WRONG_STROKE_COUNT',
         score: 0,
-        message: `❌ 筆畫數差咗啲：「${targetData.char}」約 ${targetCount} 畫，你寫咗 ${userCount} 畫`
+        i18nKey: 'verifyWrongCount',
+        meta,
+        message: t('verifyWrongCount', meta)
       };
     }
 
-    // 1. 先計按順序分數
     const compareLen = Math.min(userCount, targetCount);
     let inOrderScoreSum = 0;
     for (let i = 0; i < compareLen; i++) {
@@ -133,14 +133,16 @@ export class DictationMatcher {
     const inOrderAvg = inOrderScoreSum / Math.max(userCount, targetCount);
 
     if (inOrderAvg >= 0.48) {
+      const meta = { char: targetData.char };
       return {
         status: 'SUCCESS',
         score: inOrderAvg,
-        message: `✅ 寫啱咗「${targetData.char}」字！`
+        i18nKey: 'verifySuccessOrder',
+        meta,
+        message: t('verifySuccessOrder', meta)
       };
     }
 
-    // 2. 無順序配對（Order-Tolerant）：筆順掉轉但字形大概啱，一樣直接放行過關！
     const usedTargetIdx = new Set<number>();
     let unorderedScoreSum = 0;
 
@@ -163,17 +165,21 @@ export class DictationMatcher {
 
     const unorderedAvg = unorderedScoreSum / Math.max(userCount, targetCount);
     if (unorderedAvg >= 0.48) {
+      const meta = { char: targetData.char };
       return {
         status: 'SUCCESS',
         score: unorderedAvg,
-        message: `✅ 寫啱咗「${targetData.char}」字！（留意下筆順會仲靚）`
+        i18nKey: 'verifySuccessUnordered',
+        meta,
+        message: t('verifySuccessUnordered', meta)
       };
     }
 
     return {
       status: 'WRONG_SHAPE',
       score: Math.max(inOrderAvg, unorderedAvg),
-      message: '❌ 字形爭少少，再試下或者按「重寫本字」啦！'
+      i18nKey: 'verifyWrongShape',
+      message: t('verifyWrongShape')
     };
   }
 
