@@ -2,13 +2,42 @@
 import type { DictationToken, Point, StrokeData, VerifyResult } from './types';
 import { TraceCanvas } from './ui/canvas-trace';
 import { DictationMatcher } from './core/dictation-matcher';
-import { getLang, setLang, t, type I18nKey } from './i18n';
+import { EnglishKeyboard } from './ui/english-keyboard';
+import { applyI18n, bindLangToggle, t } from './i18n';
 
-// 自由模式備用字庫：無須預先 fetch，視覺引擎會即時利用系統字型渲染
 const CORE_COMMON_CHARS =
-  '一二三四五六七八九十人口手目耳日月水火木金土山石田禾上下大小多少左右前後中出入來去你我他她的是在有和不這那好愛家爸媽哥弟姐妹老師同學朋友春夏天秋風雨花草樹木鳥魚心手足頭面眉眼鼻口書筆紙床牀光疑地霜舉望低思故鄉';
+  '一二三四五六七八九十百千萬億零上下左右前後內外中間東西南北高矮長短大小多少快慢早晚午夜晨昏' +
+  '日月星辰水火木金土山石田禾雲雨風雪雷電霜霧光影天地海河湖江泉沙泥草花樹木葉果竹林森苗' +
+  '人口手足目耳鼻舌牙心頭面眉眼臉髮身體背腹腿腳指掌拳力氣血聲色笑哭看聽說讀寫吃喝玩樂睡醒走跑跳飛游站坐臥' +
+  '你我他她它們們誰甚麼哪裡這那的了著過是在有沒無不非可會能要應應該得就都也還又再很太最更真好壞美醜新舊冷熱溫涼乾濕香臭甜苦酸辣鹹' +
+  '家爸媽父母爺奶公婆哥弟姐妹叔伯姑姨舅兒子孫男女孩童老少親友鄰居師生同學校長醫生護士警察消防員司機工人農夫' +
+  '春夏天秋冬四季年月週日今明昨星期點分秒鐘歲節慶新年中秋端午清明重陽聖誕' +
+  '紅橙黃綠青藍紫黑白灰粉褐金銀彩亮暗明清深淺圓方尖平直曲斜正反' +
+  '書本紙筆墨硯尺刀擦膠包袋桌椅床牀燈窗門牆屋房廳廚房廁所樓梯電梯公園學校課室操場圖書館醫院商場市場車站機場碼頭' +
+  '衣褲鞋襪帽巾錶鏡傘鑰匙電話電腦電視相機球車船飛機火車巴士的士單車' +
+  '飯麵麵包餅糖奶水茶果汁湯菜肉魚蛋雞鴨豬牛羊馬狗貓鳥蟲蜂蝶蛙龜兔猴象虎獅熊龍蛇鼠' +
+  '愛喜歡想念思希望感謝對不起請再見歡迎幫助關心照顧保護學習練習溫習考試成績進步努力聰明勇敢誠實善良禮貌衛生健康安全快樂幸福' +
+  '開關進出上下起落來去回往送迎拿放收發給借還買賣找見遇問答講話告訴通知知道明白記得忘記認識以為覺得相信' +
+  '賞疑舉望低故鄉國香港九龍新界中國世界城市街道村莊風景名勝歷史文化科學技術藝術音樂美術體育運動比賽勝利成功失敗';
 
 const STORAGE_KEY = 'kidsprep_session_v2';
+type SubjectMode = 'zh' | 'en';
+type EnHintLevel = 'first' | 'firstTwo' | 'full';
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+  return dp[m][n];
+}
 
 function initApp() {
   const synth = 'speechSynthesis' in window ? window.speechSynthesis : null;
@@ -28,22 +57,26 @@ function initApp() {
       audioUnlocked = true;
     } catch { /* ignore */ }
   };
-  // 優化：同時綁定多種觸控與點擊事件，確保 iOS Safari 語音引擎 100% 成功解鎖
-  ['pointerdown', 'touchstart', 'click'].forEach(evt => {
+  ['pointerdown', 'touchstart', 'click'].forEach((evt) => {
     document.addEventListener(evt, unlockAudioEngine, { once: true });
   });
 
   const traceCanvas = new TraceCanvas('trace-canvas', 'ink-canvas', 'stroke-badge');
 
-  const btnLangToggle = document.getElementById('btn-lang-toggle') as HTMLButtonElement;
   const parentPanel = document.getElementById('parent-panel') as HTMLDetailsElement;
   const btnFreeMode = document.getElementById('btn-free-mode') as HTMLButtonElement;
   const inputPassage = document.getElementById('input-passage') as HTMLTextAreaElement;
   const btnStartPassage = document.getElementById('btn-start-passage') as HTMLButtonElement;
   const progressPill = document.getElementById('progress-pill') as HTMLElement;
 
+  const enOptionsWrapper = document.getElementById('en-options-wrapper') as HTMLElement;
+  const useSysKbCb = document.getElementById('use-sys-kb') as HTMLInputElement;
+  const enFuzzyCb = document.getElementById('en-fuzzy-mode') as HTMLInputElement;
+  const enHintLevelSelect = document.getElementById('en-hint-level') as HTMLSelectElement;
+
   const btnSpeakSentence = document.getElementById('btn-speak-sentence') as HTMLButtonElement;
   const btnSpeakChar = document.getElementById('btn-speak-char') as HTMLButtonElement;
+  const btnSlowListen = document.getElementById('btn-slow-listen') as HTMLButtonElement;
   const slotsContainer = document.getElementById('sentence-slots') as HTMLElement;
   const feedbackBanner = document.getElementById('feedback-banner') as HTMLElement;
   const candidateBar = document.getElementById('candidate-bar') as HTMLElement;
@@ -53,12 +86,19 @@ function initApp() {
   const btnClear = document.getElementById('btn-clear') as HTMLButtonElement;
   const btnSkip = document.getElementById('btn-skip') as HTMLButtonElement | null;
 
+  const zhWorkspace = document.getElementById('zh-workspace') as HTMLElement;
+  const enWorkspace = document.getElementById('en-workspace') as HTMLElement;
+  const enDisplay = document.getElementById('en-display') as HTMLElement;
+
   let tokens: DictationToken[] = [];
   let currentIndex = 0;
   let fullPassageText = '';
   let isFreeWriteMode = true;
+  let currentSubject: SubjectMode = 'zh';
   let loadRequestId = 0;
   let bannerTimer: number | null = null;
+  let enHintTimer: number | null = null;
+  let isEnHintActive = false;
   let poolReady = false;
 
   const candidatePool: StrokeData[] = [];
@@ -66,30 +106,107 @@ function initApp() {
   const baseUrl = import.meta.env.BASE_URL || '/';
 
   const updateProgressBadge = () => {
-    const totalChars = tokens.filter(t => !t.isPunctuation).length;
-    const doneChars = tokens.filter(t => !t.isPunctuation && t.revealed).length;
-    progressPill.textContent = isFreeWriteMode
-      ? t('progressFree', { done: doneChars })
-      : t('progressStrict', { done: doneChars, total: totalChars });
+    const total = tokens.filter((item) => !item.isPunctuation).length;
+    const done = tokens.filter((item) => !item.isPunctuation && item.revealed).length;
+
+    if (currentSubject === 'en') {
+      progressPill.textContent = t('progressEnStrict', { done, total });
+    } else if (isFreeWriteMode) {
+      progressPill.textContent = t('progressFree', { done });
+    } else {
+      progressPill.textContent = t('progressStrict', { done, total });
+    }
   };
 
-  const applyLocalization = () => {
-    document.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => {
-      const key = el.dataset.i18n as I18nKey;
-      if (key) el.textContent = t(key);
+  const shouldShowHintLetter = (idx: number, level: EnHintLevel): boolean => {
+    if (!isEnHintActive) return false;
+    if (level === 'full') return true;
+    if (level === 'firstTwo') return idx < 2;
+    return idx === 0;
+  };
+
+  const renderEnDisplay = (typed: string) => {
+    const targetWord = tokens[currentIndex]?.char || '';
+    const level = (enHintLevelSelect?.value as EnHintLevel) || 'first';
+    enDisplay.innerHTML = '';
+
+    const maxLen = Math.max(typed.length, targetWord.length, 3);
+    for (let i = 0; i < maxLen; i++) {
+      const targetCh = targetWord[i];
+      const typedCh = typed[i];
+      const span = document.createElement('span');
+      span.className = 'en-char-slot';
+
+      if (typedCh !== undefined) {
+        if (typedCh === ' ') {
+          span.classList.add('space');
+          span.textContent = '\u00A0';
+        } else {
+          span.textContent = typedCh;
+        }
+      } else if (targetCh === ' ') {
+        span.classList.add('space');
+        span.textContent = '\u00A0';
+      } else if (targetCh !== undefined && shouldShowHintLetter(i, level)) {
+        span.classList.add('hint');
+        span.textContent = targetCh;
+      } else {
+        span.classList.add('empty');
+        span.textContent = '_';
+      }
+
+      enDisplay.appendChild(span);
+    }
+  };
+
+  const englishKeyboard = new EnglishKeyboard('en-keyboard', 'sys-en-input', {
+    onChange: (val) => {
+      renderEnDisplay(val);
+    },
+    onSubmit: (val) => {
+      verifyEnInput(val);
+    }
+  });
+
+  const syncSubjectUI = (subject: SubjectMode) => {
+    currentSubject = subject;
+    const isEn = subject === 'en';
+
+    slotsContainer.classList.toggle('en-mode', isEn);
+    enOptionsWrapper.style.display = isEn ? 'flex' : 'none';
+    btnFreeMode.style.display = isEn ? 'none' : 'block';
+    btnSlowListen.style.display = isEn ? 'inline-block' : 'none';
+
+    btnSpeakChar.dataset.i18n = isEn ? 'btnSpeakWord' : 'btnSpeakChar';
+    btnHint.dataset.i18n = isEn ? 'btnHintEn' : 'btnHint';
+
+    zhWorkspace.style.display = isEn ? 'none' : 'block';
+    enWorkspace.style.display = isEn ? 'block' : 'none';
+
+    if (isEn) {
+      englishKeyboard.setUseSystemKeyboard(Boolean(useSysKbCb?.checked));
+    }
+
+    applyI18n();
+    updateProgressBadge();
+  };
+
+  document.querySelectorAll<HTMLInputElement>('input[name="subject"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      if (radio.checked) {
+        syncSubjectUI(radio.value as SubjectMode);
+      }
     });
-    document.querySelectorAll<HTMLTextAreaElement | HTMLInputElement>('[data-i18n-placeholder]').forEach((el) => {
-      const key = el.dataset.i18nPlaceholder as I18nKey;
-      if (key) el.placeholder = t(key);
-    });
-    btnLangToggle.textContent = t('langBtn');
+  });
+
+  useSysKbCb?.addEventListener('change', () => {
+    englishKeyboard.setUseSystemKeyboard(useSysKbCb.checked);
+  });
+
+  window.addEventListener('langchange', () => {
     updateProgressBadge();
     traceCanvas.updateBadge();
-  };
-
-  btnLangToggle.addEventListener('click', () => {
-    setLang(getLang() === 'zh' ? 'en' : 'zh');
-    applyLocalization();
+    englishKeyboard.updateLocalization();
   });
 
   const fetchWithTimeout = async (url: string, timeoutMs: number = 3000) => {
@@ -101,25 +218,34 @@ function initApp() {
     try {
       return await fetch(url, { signal: controller.signal });
     } finally {
-      // 優化：確保 fetch 無論成功、404 或拋錯，都會清理計時器，防內存洩漏
       clearTimeout(id);
     }
   };
 
-  // 直接建立基礎字元集索引，無需等待外部 JSON，實現 0 毫秒冷啟動
   const preloadCandidatePool = async () => {
     const uniqueChars = Array.from(new Set(Array.from(CORE_COMMON_CHARS)));
-    for (const ch of uniqueChars) {
-      const code = ch.codePointAt(0);
-      if (!code) continue;
-      const unicode = code.toString(16).toUpperCase().padStart(4, '0');
-      candidatePool.push({
-        char: ch,
-        unicode,
-        totalStrokes: 0,
-        strokes: [],
-        medians: []
-      });
+    const batchSize = 24;
+
+    for (let i = 0; i < uniqueChars.length; i += batchSize) {
+      const batch = uniqueChars.slice(i, i + batchSize);
+      await Promise.allSettled(
+        batch.map(async (ch) => {
+          const code = ch.codePointAt(0);
+          if (!code) return;
+          const unicode = code.toString(16).toUpperCase().padStart(4, '0');
+          try {
+            const res = await fetchWithTimeout(`${baseUrl}data/${unicode}.json`, 3000);
+            if (res.ok) {
+              const data: StrokeData = await res.json();
+              if (data.medians && data.medians.length > 0) {
+                charCache.set(ch, data);
+                candidatePool.push(data);
+              }
+            }
+          } catch { /* ignore */ }
+        })
+      );
+      if (candidatePool.length > 0) poolReady = true;
     }
     poolReady = true;
   };
@@ -134,28 +260,46 @@ function initApp() {
     }, 2400);
   };
 
-  const speakCantonese = (text: string) => {
+  const speakText = (text: string, rate: number = 0.85) => {
     if (!text || !synth) return;
     if (synth.speaking) synth.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.85;
-
+    utterance.rate = rate;
     const voices = synth.getVoices();
-    const hkVoice = voices.find(v => /yue|cantonese|hong kong|zh-hk|粵|廣東/i.test(v.name + ' ' + v.lang));
-    const zhFallback = voices.find(v => /zh-cn|zh-tw|mandarin|cmn|普通|國語/i.test(v.lang + ' ' + v.name));
 
-    if (hkVoice) {
-      utterance.lang = 'zh-HK';
-      utterance.voice = hkVoice;
-    } else if (zhFallback) {
-      utterance.lang = zhFallback.lang;
-      utterance.voice = zhFallback;
-      if (feedbackBanner.style.display !== 'block') {
-        showBanner(t('msgVoiceFallback'));
+    if (currentSubject === 'en') {
+      const gbVoice =
+        voices.find((v) => v.lang === 'en-GB' && /daniel|kate|serena|arthur|martha|oliver/i.test(v.name)) ||
+        voices.find((v) => v.lang === 'en-GB');
+      const usVoice =
+        voices.find((v) => v.lang === 'en-US' && /samantha|alex|fred/i.test(v.name)) ||
+        voices.find((v) => v.lang === 'en-US');
+      const anyEn = voices.find((v) => v.lang.toLowerCase().startsWith('en-'));
+
+      const picked = gbVoice || usVoice || anyEn;
+      if (picked) {
+        utterance.voice = picked;
+        utterance.lang = picked.lang;
+      } else {
+        utterance.lang = 'en-GB';
       }
     } else {
-      utterance.lang = 'zh-HK';
+      const hkVoice = voices.find((v) => /yue|cantonese|hong kong|zh-hk|粵|廣東/i.test(`${v.name} ${v.lang}`));
+      const zhFallback = voices.find((v) => /zh-cn|zh-tw|mandarin|cmn|普通|國語/i.test(`${v.lang} ${v.name}`));
+
+      if (hkVoice) {
+        utterance.lang = 'zh-HK';
+        utterance.voice = hkVoice;
+      } else if (zhFallback) {
+        utterance.lang = zhFallback.lang;
+        utterance.voice = zhFallback;
+        if (feedbackBanner.style.display !== 'block') {
+          showBanner(t('msgVoiceFallback'));
+        }
+      } else {
+        utterance.lang = 'zh-HK';
+      }
     }
 
     utterance.onerror = () => {
@@ -170,59 +314,43 @@ function initApp() {
   const saveSessionProgress = () => {
     if (isFreeWriteMode || !fullPassageText) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        passage: fullPassageText,
-        tokens,
-        currentIndex,
-        timestamp: Date.now()
-      }));
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          passage: fullPassageText,
+          tokens,
+          currentIndex,
+          subject: currentSubject,
+          timestamp: Date.now()
+        })
+      );
     } catch { /* ignore */ }
   };
 
   const renderSlots = () => {
     updateProgressBadge();
     let activeEl: HTMLElement | null = null;
+    slotsContainer.innerHTML = '';
 
-    if (slotsContainer.children.length === tokens.length) {
-      tokens.forEach((token, idx) => {
-        const div = slotsContainer.children[idx] as HTMLElement;
-        div.className = 'char-slot';
-        div.style.opacity = '1';
-        if (token.isPunctuation) {
-          div.classList.add('punctuation');
-          div.textContent = token.char;
-        } else if (token.revealed) {
-          div.classList.add('revealed');
-          if (token.skipped) div.style.opacity = '0.68';
-          div.textContent = token.char;
-        } else if (idx === currentIndex) {
-          div.classList.add('active');
-          div.textContent = '✍️';
-          activeEl = div;
-        } else {
-          div.textContent = '';
-        }
-      });
-    } else {
-      slotsContainer.innerHTML = '';
-      tokens.forEach((token, idx) => {
-        const div = document.createElement('div');
-        div.className = 'char-slot';
-        if (token.isPunctuation) {
-          div.classList.add('punctuation');
-          div.textContent = token.char;
-        } else if (token.revealed) {
-          div.classList.add('revealed');
-          if (token.skipped) div.style.opacity = '0.68';
-          div.textContent = token.char;
-        } else if (idx === currentIndex) {
-          div.classList.add('active');
-          div.textContent = '✍️';
-          activeEl = div;
-        }
-        slotsContainer.appendChild(div);
-      });
-    }
+    tokens.forEach((token, idx) => {
+      const div = document.createElement('div');
+      div.className = 'char-slot';
+
+      if (token.isPunctuation) {
+        div.classList.add('punctuation');
+        div.textContent = token.char;
+      } else if (token.revealed) {
+        div.classList.add('revealed');
+        if (token.skipped) div.style.opacity = '0.68';
+        div.textContent = token.char;
+      } else if (idx === currentIndex) {
+        div.classList.add('active');
+        div.textContent = '✍️';
+        activeEl = div;
+      }
+
+      slotsContainer.appendChild(div);
+    });
 
     if (activeEl) {
       (activeEl as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -230,23 +358,24 @@ function initApp() {
   };
 
   const renderCandidateBar = (candidates: string[], targetSlotIdx: number) => {
-    if (!isFreeWriteMode || candidates.length === 0) {
+    if (!isFreeWriteMode || currentSubject !== 'zh' || candidates.length === 0) {
       candidateBar.style.display = 'none';
       return;
     }
     candidateBar.style.display = 'flex';
     candidateBar.innerHTML = `<span style="font-size:0.8rem;color:#666;align-self:center;">${t('candidateLabel')}</span>`;
 
-    candidates.forEach(ch => {
+    candidates.forEach((ch) => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = ch;
-      btn.style.cssText = 'padding:4px 10px;border:1px solid #00796b;border-radius:6px;background:#e0f2f1;font-weight:bold;font-size:1.1rem;cursor:pointer;';
+      btn.style.cssText =
+        'padding:4px 10px;border:1px solid #00796b;border-radius:6px;background:#e0f2f1;font-weight:bold;font-size:1.1rem;cursor:pointer;';
       btn.addEventListener('click', () => {
         if (tokens[targetSlotIdx]) {
           tokens[targetSlotIdx].char = ch;
           renderSlots();
-          speakCantonese(ch);
+          speakText(ch, 0.85);
           candidateBar.style.display = 'none';
         }
       });
@@ -254,7 +383,7 @@ function initApp() {
     });
   };
 
-  const loadCurrentTarget = async () => {
+  const loadCurrentTarget = async (autoSpeakEn: boolean = true) => {
     const reqId = ++loadRequestId;
 
     while (currentIndex < tokens.length && tokens[currentIndex].isPunctuation) {
@@ -262,7 +391,7 @@ function initApp() {
       currentIndex++;
     }
 
-    if (isFreeWriteMode && currentIndex >= tokens.length) {
+    if (isFreeWriteMode && currentSubject === 'zh' && currentIndex >= tokens.length) {
       tokens.push(...Array.from({ length: 10 }, () => ({ char: '', isPunctuation: false, revealed: false })));
     }
 
@@ -272,7 +401,21 @@ function initApp() {
     if (!isFreeWriteMode && currentIndex >= tokens.length) {
       localStorage.removeItem(STORAGE_KEY);
       showBanner(t('msgCompleted'));
-      speakCantonese(t('msgCompletedVoice'));
+      speakText(currentSubject === 'en' ? t('msgCompletedEnVoice') : t('msgCompletedVoice'), 0.85);
+      return;
+    }
+
+    // P1 修復：英文模式切換至新單字時自動朗讀，形成「聽聲串字」完整閉環
+    if (currentSubject === 'en') {
+      if (enHintTimer) clearTimeout(enHintTimer);
+      isEnHintActive = false;
+      const targetWord = tokens[currentIndex]?.char || '';
+      englishKeyboard.setMaxLength(Math.max(targetWord.length + 4, 24));
+      englishKeyboard.clear();
+      renderEnDisplay('');
+      if (targetWord && autoSpeakEn) {
+        speakText(targetWord, 0.85);
+      }
       return;
     }
 
@@ -294,14 +437,7 @@ function initApp() {
     try {
       const res = await fetchWithTimeout(`${baseUrl}data/${unicode}.json`, 3000);
       if (reqId !== loadRequestId) return;
-      
-      if (!res.ok) {
-        const fallbackData: StrokeData = { char: targetChar, unicode, totalStrokes: 0, strokes: [], medians: [] };
-        charCache.set(targetChar, fallbackData);
-        traceCanvas.loadDictationTarget(fallbackData);
-        return;
-      }
-      
+      if (!res.ok) throw new Error('Not found');
       const data: StrokeData = await res.json();
       if (reqId !== loadRequestId) return;
 
@@ -309,29 +445,63 @@ function initApp() {
       traceCanvas.loadDictationTarget(data);
     } catch {
       if (reqId !== loadRequestId) return;
-      const fallbackData: StrokeData = { char: targetChar, unicode, totalStrokes: 0, strokes: [], medians: [] };
-      charCache.set(targetChar, fallbackData);
-      traceCanvas.loadDictationTarget(fallbackData);
+      traceCanvas.loadDictationTarget({ char: targetChar, unicode, totalStrokes: 0, strokes: [], medians: [] });
     }
+  };
+
+  const verifyEnInput = (rawTyped: string) => {
+    if (currentSubject !== 'en' || isFreeWriteMode || currentIndex >= tokens.length) return;
+
+    const targetWord = tokens[currentIndex].char.trim();
+    const typedClean = rawTyped.trim().replace(/\s+/g, ' ').toLowerCase();
+    const targetLower = targetWord.toLowerCase();
+
+    // P2-3：空輸入按確認時給予明確提示
+    if (!typedClean) {
+      showBanner(t('enVerifyWrong'), true);
+      return;
+    }
+
+    const isExact = typedClean === targetLower;
+    const isFuzzyAllowed = Boolean(enFuzzyCb?.checked);
+    const dist = levenshtein(typedClean, targetLower);
+    const isFuzzyPass = !isExact && isFuzzyAllowed && targetLower.length >= 3 && dist === 1;
+
+    if (isExact || isFuzzyPass) {
+      if (navigator.vibrate) navigator.vibrate(25);
+      tokens[currentIndex].revealed = true;
+      showBanner(
+        isExact
+          ? t('enVerifySuccess', { word: targetWord })
+          : t('enVerifyFuzzySuccess', { word: targetWord })
+      );
+      currentIndex++;
+      // P2-2：答對後直接交由 loadCurrentTarget(true) 朗讀下一詞，避免連讀兩詞造成混淆
+      loadCurrentTarget(true);
+      return;
+    }
+
+    if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    showBanner(t('enVerifyWrong'), true);
   };
 
   const handleStrictResult = (result: VerifyResult) => {
     if (currentIndex >= tokens.length) return;
-    const localizedMsg = result.i18nKey ? t(result.i18nKey, result.meta) : result.message;
+    // P0 修復：對齊 VerifyResult 的 3 欄位定義（status / score / message），確保 TS 編譯通過
+    const localizedMsg = result.message;
 
     if (result.status === 'SUCCESS') {
       const doneChar = tokens[currentIndex].char;
       if (navigator.vibrate) navigator.vibrate(25);
       tokens[currentIndex].revealed = true;
 
-      // 追蹤字形掃描補底過關（缺字）標記
-      if (result.i18nKey === 'verifyFallbackSuccess') {
+      if (result.score === 0.8 && result.message.includes('寫好')) {
         tokens[currentIndex].skipped = true;
       }
 
       showBanner(localizedMsg);
       currentIndex++;
-      speakCantonese(doneChar);
+      speakText(doneChar, 0.85);
       loadCurrentTarget();
       return;
     }
@@ -371,7 +541,7 @@ function initApp() {
 
     renderCandidateBar(candidates, writtenSlotIdx);
     showBanner(t('msgFreeMatched', { char: bestMatch }));
-    speakCantonese(bestMatch);
+    speakText(bestMatch, 0.85);
 
     currentIndex++;
     loadCurrentTarget();
@@ -380,6 +550,10 @@ function initApp() {
   traceCanvas.setCallbacks(handleStrictResult, handleFreeRecognize);
 
   const startFreeMode = () => {
+    const zhRadio = document.querySelector<HTMLInputElement>('input[name="subject"][value="zh"]');
+    if (zhRadio) zhRadio.checked = true;
+    syncSubjectUI('zh');
+
     isFreeWriteMode = true;
     fullPassageText = '';
     inputPassage.value = '';
@@ -395,7 +569,7 @@ function initApp() {
       revealed: false
     }));
     currentIndex = 0;
-    loadCurrentTarget();
+    loadCurrentTarget(false);
   };
 
   const startPassageDictation = (rawText: string, shouldSpeak: boolean = true) => {
@@ -404,31 +578,54 @@ function initApp() {
       showBanner(t('msgEmptyPassage'), true);
       return;
     }
+
+    const selectedRadio = document.querySelector<HTMLInputElement>('input[name="subject"]:checked');
+    const chosenSubject = (selectedRadio?.value as SubjectMode) || currentSubject;
+    syncSubjectUI(chosenSubject);
+
     isFreeWriteMode = false;
     fullPassageText = raw;
-
     parentPanel.open = false;
+
     btnHint.style.display = 'inline-block';
     btnSpeakChar.style.display = 'inline-block';
     if (btnSkip) btnSkip.style.display = 'inline-block';
     candidateBar.style.display = 'none';
 
-    const punctRegex = /[，。！？、；：「」『』（）\n\r\s,.!?;:'"()]/;
-    tokens = Array.from(raw)
-      .filter(ch => ch !== '\n' && ch !== '\r')
-      .map(ch => ({
-        char: ch,
-        isPunctuation: punctRegex.test(ch),
-        revealed: punctRegex.test(ch)
-      }));
+    if (chosenSubject === 'en') {
+      tokens = raw
+        .split(/[,，\n\r]+/)
+        .map((w) => w.trim().replace(/\s+/g, ' '))
+        .filter((w) => w.length > 0)
+        .map((word) => ({
+          char: word,
+          isPunctuation: false,
+          revealed: false
+        }));
+    } else {
+      const punctRegex = /[，。！？、；：「」『』（）\n\r\s,.!?;:'"()]/;
+      tokens = Array.from(raw)
+        .filter((ch) => ch !== '\n' && ch !== '\r')
+        .map((ch) => ({
+          char: ch,
+          isPunctuation: punctRegex.test(ch),
+          revealed: punctRegex.test(ch)
+        }));
+    }
 
     currentIndex = 0;
-    loadCurrentTarget();
-    if (shouldSpeak) speakCantonese(fullPassageText);
+    loadCurrentTarget(shouldSpeak);
+    if (shouldSpeak && chosenSubject === 'zh') {
+      speakText(fullPassageText, 0.85);
+    }
   };
 
   btnConfirmWord.addEventListener('click', () => {
-    traceCanvas.triggerVerificationNow();
+    if (currentSubject === 'en') {
+      verifyEnInput(englishKeyboard.getValue());
+    } else {
+      traceCanvas.triggerVerificationNow();
+    }
   });
 
   btnFreeMode.addEventListener('click', startFreeMode);
@@ -436,21 +633,46 @@ function initApp() {
 
   btnSpeakSentence.addEventListener('click', () => {
     if (isFreeWriteMode) {
-      const writtenText = tokens.filter(t => t.revealed).map(t => t.char).join('');
-      if (writtenText) speakCantonese(writtenText);
+      const writtenText = tokens.filter((item) => item.revealed).map((item) => item.char).join('');
+      if (writtenText) speakText(writtenText, 0.85);
     } else {
-      speakCantonese(fullPassageText);
+      speakText(fullPassageText, 0.85);
     }
   });
 
   btnSpeakChar.addEventListener('click', () => {
     if (!isFreeWriteMode && currentIndex < tokens.length) {
-      speakCantonese(tokens[currentIndex].char);
+      speakText(tokens[currentIndex].char, 0.85);
     }
   });
 
-  btnHint.addEventListener('click', () => traceCanvas.flashHint(1800));
-  btnClear.addEventListener('click', () => traceCanvas.clearInk());
+  btnSlowListen.addEventListener('click', () => {
+    if (currentSubject === 'en' && !isFreeWriteMode && currentIndex < tokens.length) {
+      speakText(tokens[currentIndex].char, 0.55);
+    }
+  });
+
+  btnHint.addEventListener('click', () => {
+    if (currentSubject === 'en') {
+      if (enHintTimer) clearTimeout(enHintTimer);
+      isEnHintActive = true;
+      renderEnDisplay(englishKeyboard.getValue());
+      enHintTimer = window.setTimeout(() => {
+        isEnHintActive = false;
+        renderEnDisplay(englishKeyboard.getValue());
+      }, 1800);
+    } else {
+      traceCanvas.flashHint(1800);
+    }
+  });
+
+  btnClear.addEventListener('click', () => {
+    if (currentSubject === 'en') {
+      englishKeyboard.clear();
+    } else {
+      traceCanvas.clearInk();
+    }
+  });
 
   if (btnSkip) {
     btnSkip.addEventListener('click', () => {
@@ -459,9 +681,15 @@ function initApp() {
       tokens[currentIndex].revealed = true;
       tokens[currentIndex].skipped = true;
       showBanner(t('msgSkipped', { char: skippedChar }));
-      traceCanvas.clearInk();
+
+      if (currentSubject === 'en') {
+        englishKeyboard.clear();
+      } else {
+        traceCanvas.clearInk();
+      }
+
       currentIndex++;
-      loadCurrentTarget();
+      loadCurrentTarget(true);
     });
   }
 
@@ -471,15 +699,22 @@ function initApp() {
       if (rawSaved) {
         const parsed = JSON.parse(rawSaved);
         if (parsed.passage && Array.isArray(parsed.tokens) && parsed.currentIndex < parsed.tokens.length) {
+          const savedSubject: SubjectMode = parsed.subject === 'en' ? 'en' : 'zh';
+          const radio = document.querySelector<HTMLInputElement>(`input[name="subject"][value="${savedSubject}"]`);
+          if (radio) radio.checked = true;
+          syncSubjectUI(savedSubject);
+
           isFreeWriteMode = false;
           fullPassageText = parsed.passage;
           inputPassage.value = parsed.passage;
           tokens = parsed.tokens;
           currentIndex = parsed.currentIndex;
+
           btnHint.style.display = 'inline-block';
           btnSpeakChar.style.display = 'inline-block';
           if (btnSkip) btnSkip.style.display = 'inline-block';
-          loadCurrentTarget();
+
+          loadCurrentTarget(false);
           showBanner(t('msgRestored'));
           return;
         }
@@ -489,7 +724,8 @@ function initApp() {
     startFreeMode();
   };
 
-  applyLocalization();
+  applyI18n();
+  bindLangToggle();
   preloadCandidatePool();
   checkSavedSession();
 }
