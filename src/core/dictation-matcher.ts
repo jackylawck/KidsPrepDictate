@@ -4,8 +4,14 @@ import { t } from '../i18n';
 
 const GRID_SIZE = 64;
 
+interface GlyphMask {
+  raw: Uint8Array;
+  dilated: Uint8Array;
+  pixelCount: number;
+}
+
 export class DictationMatcher {
-  private static glyphMaskCache = new Map<string, { raw: Uint8Array; dilated: Uint8Array; pixelCount: number } | null>();
+  private static glyphMaskCache = new Map<string, GlyphMask | null>();
 
   public static screenToHanziCoords(
     screenX: number,
@@ -27,10 +33,7 @@ export class DictationMatcher {
     };
   }
 
-  /**
-   * 將系統繁體字型渲染成 64x64 標準字形點陣圖（用於真正視覺掃描比對）
-   */
-  private static getTargetGlyphMask(char: string): { raw: Uint8Array; dilated: Uint8Array; pixelCount: number } | null {
+  private static getTargetGlyphMask(char: string): GlyphMask | null {
     if (this.glyphMaskCache.has(char)) {
       return this.glyphMaskCache.get(char)!;
     }
@@ -53,7 +56,6 @@ export class DictationMatcher {
 
       const img = ctx.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
 
-      // 找出字形實際邊界框，保持長寬比等比縮放至標準框
       let minX = GRID_SIZE, maxX = 0, minY = GRID_SIZE, maxY = 0;
       let hasInk = false;
       for (let y = 0; y < GRID_SIZE; y++) {
@@ -72,7 +74,6 @@ export class DictationMatcher {
         return null;
       }
 
-      // 重新等比置中繪製，消除不同字體上下留白差異
       const normCanvas = document.createElement('canvas');
       normCanvas.width = GRID_SIZE;
       normCanvas.height = GRID_SIZE;
@@ -93,7 +94,6 @@ export class DictationMatcher {
       const dilated = new Uint8Array(GRID_SIZE * GRID_SIZE);
       let pixelCount = 0;
 
-      // 膨脹半徑 3px（容許小朋友手寫筆畫微偏，但寫錯字如「大」vs「晚」會大量出界）
       const radius = 3;
       for (let y = 0; y < GRID_SIZE; y++) {
         for (let x = 0; x < GRID_SIZE; x++) {
@@ -123,16 +123,13 @@ export class DictationMatcher {
     }
   }
 
-  /**
-   * 將用戶手寫座標光柵化為 64x64 點陣圖（保持長寬比等比置中）
-   */
   private static rasterizeUserStrokes(userStrokes: Point[][]): { mask: Uint8Array; inkPixels: number } | null {
     if (typeof document === 'undefined') return null;
 
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const stroke of userStrokes) {
       for (const p of stroke) {
-        const sy = 1024 - p.y; // 轉回螢幕 Y 軸向下
+        const sy = 1024 - p.y;
         if (p.x < minX) minX = p.x;
         if (p.x > maxX) maxX = p.x;
         if (sy < minY) minY = sy;
@@ -189,15 +186,14 @@ export class DictationMatcher {
     return { mask, inkPixels };
   }
 
-  /**
-   * 視覺掃描比對分數 (0 ~ 1)：結合精準度（筆跡有冇寫出界）與覆蓋率（有冇寫齊部首筆畫）
-   */
-  public static scoreGlyphVisual(userStrokes: Point[][], targetChar: string): number | null {
+  // 優化 1：引入光柵密度懲罰，防止「畫一條長線」獲得過高的字形重疊分數
+  private static scoreGlyphWithRaster(
+    user: { mask: Uint8Array; inkPixels: number },
+    targetChar: string
+  ): { f1: number; pixelRatioPenalty: number } | null {
     const target = this.getTargetGlyphMask(targetChar);
-    const user = this.rasterizeUserStrokes(userStrokes);
-    if (!target || !user || user.inkPixels === 0 || target.pixelCount === 0) return null;
+    if (!target || user.inkPixels === 0 || target.pixelCount === 0) return null;
 
-    // 1. Precision：小朋友寫嘅筆跡有幾多成係落喺目標字形輪廓入面（寫「大」落「晚」會大量出界）
     let hitDilated = 0;
     for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
       if (user.mask[i] && target.dilated[i]) {
@@ -206,8 +202,6 @@ export class DictationMatcher {
     }
     const precision = hitDilated / user.inkPixels;
 
-    // 2. Recall：目標字嘅筆畫有幾多成被小朋友覆蓋到（只寫一橫想過「晚」會覆蓋率極低）
-    // 對用戶筆跡做 2px 膨脹後檢查覆蓋目標字形核心
     let coveredTarget = 0;
     for (let y = 0; y < GRID_SIZE; y++) {
       for (let x = 0; x < GRID_SIZE; x++) {
@@ -228,13 +222,24 @@ export class DictationMatcher {
     }
     const recall = coveredTarget / target.pixelCount;
 
-    // 硬性門檻：筆跡出界太多（寫錯字）或筆畫漏太多直接淘汰
     if (precision < 0.56 || recall < 0.46) {
-      return Math.min(precision, recall) * 0.6;
+      return { f1: Math.min(precision, recall) * 0.6, pixelRatioPenalty: 0.7 };
     }
 
-    // F1 調和平均數
-    return (2 * precision * recall) / (precision + recall);
+    const f1 = (2 * precision * recall) / (precision + recall);
+    
+    // 密度比例懲罰：防止少筆畫字被高密度多筆畫字搶分（或反之）
+    const densityRatio = Math.min(user.inkPixels, target.pixelCount) / Math.max(user.inkPixels, target.pixelCount);
+    const pixelRatioPenalty = 0.75 + 0.25 * densityRatio;
+
+    return { f1, pixelRatioPenalty };
+  }
+
+  public static scoreGlyphVisual(userStrokes: Point[][], targetChar: string): number | null {
+    const user = this.rasterizeUserStrokes(userStrokes);
+    if (!user) return null;
+    const res = this.scoreGlyphWithRaster(user, targetChar);
+    return res ? res.f1 : null;
   }
 
   private static resampleStroke(points: Point[], numPoints: number = 8): Point[] {
@@ -304,9 +309,6 @@ export class DictationMatcher {
     return shapeScore * 0.65 + cosSim * 0.35;
   }
 
-  /**
-   * 雙引擎字形辨識：優先使用「字形視覺掃描」真正認字，杜絕寫「大」過「晚」
-   */
   public static verifyCharacterStrict(userStrokes: Point[][], targetData: StrokeData): VerifyResult {
     if (!this.checkBoundingBoxSanity(userStrokes)) {
       return {
@@ -320,9 +322,7 @@ export class DictationMatcher {
     const hasMedians = Boolean(targetData.medians && targetData.medians.length > 0);
     const visualScore = this.scoreGlyphVisual(userStrokes, targetData.char);
 
-    // 1. 瀏覽器環境：透過字形視覺掃描真正比對筆畫輪廓（100% 覆蓋所有漢字，無懼 JSON 404）
     if (visualScore !== null) {
-      // 若有筆順庫且筆畫數差太遠（例如寫 2 畫想過 11 畫），直接提示筆畫數唔啱
       if (hasMedians) {
         const targetCount = targetData.medians!.length;
         const userCount = userStrokes.length;
@@ -357,7 +357,6 @@ export class DictationMatcher {
       };
     }
 
-    // 2. 無 DOM 環境（Vitest 單元測試回退路徑）：使用向量幾何比對
     if (!hasMedians) {
       return {
         status: 'UNSUPPORTED',
@@ -438,9 +437,6 @@ export class DictationMatcher {
     };
   }
 
-  /**
-   * 無家長自由模式：結合視覺字形掃描 + 筆畫數排序，選出最吻合的 Top N 繁體字
-   */
   public static recognizeTopCandidates(
     userStrokes: Point[][],
     candidatePool: StrokeData[],
@@ -449,30 +445,46 @@ export class DictationMatcher {
     if (!this.checkBoundingBoxSanity(userStrokes)) return [];
     const userCount = userStrokes.length;
     const scored: { char: string; score: number }[] = [];
+    const userRaster = this.rasterizeUserStrokes(userStrokes);
 
     for (const data of candidatePool) {
-      const visual = this.scoreGlyphVisual(userStrokes, data.char);
-      if (visual !== null) {
-        if (visual >= 0.42) {
-          scored.push({ char: data.char, score: visual });
+      // 1. 優先使用視覺光柵引擎（實機預設）
+      if (userRaster) {
+        const res = this.scoreGlyphWithRaster(userRaster, data.char);
+        
+        // 取得備用筆劃資訊作防搶字約束
+        const targetCount = data.medians && data.medians.length > 0 ? data.medians.length : 0;
+        if (targetCount > 0 && Math.abs(userCount - targetCount) > 2) continue; // 差距 > 2 直接過濾
+
+        if (res && res.f1 >= 0.42) {
+          scored.push({ char: data.char, score: res.f1 * res.pixelRatioPenalty });
         }
         continue;
       }
 
+      // 2. 備用向量比對引擎（無 DOM 或光柵失效時使用）
       if (!data.medians || data.medians.length === 0) continue;
       const targetCount = data.medians.length;
-      if (Math.abs(userCount - targetCount) > 1) continue;
+      
+      // 優化 2：加回筆劃數約束與懲罰機制，防止 5 畫「外」被 16 畫「學」搶走
+      const strokeCountGap = Math.abs(userCount - targetCount);
+      if (strokeCountGap > 2) continue; // 差距 > 2 直接排除
 
       const compareLen = Math.min(userCount, targetCount);
       let sum = 0;
       for (let i = 0; i < compareLen; i++) {
         sum += this.scoreSingleStroke(userStrokes[i], data.medians[i]);
       }
+      
       const penalty = userCount === targetCount ? 1.0 : 0.88;
       const finalScore = (sum / Math.max(userCount, targetCount)) * penalty;
+      
+      // 筆畫數差距越大，分數扣減越多
+      const strokePenalty = strokeCountGap === 0 ? 1.0 : strokeCountGap === 1 ? 0.9 : 0.72;
+      const weightedScore = finalScore * strokePenalty;
 
-      if (finalScore >= 0.4) {
-        scored.push({ char: data.char, score: finalScore });
+      if (weightedScore >= 0.38) {
+        scored.push({ char: data.char, score: weightedScore });
       }
     }
 
