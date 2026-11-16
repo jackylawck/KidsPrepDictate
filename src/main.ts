@@ -28,7 +28,10 @@ function initApp() {
       audioUnlocked = true;
     } catch { /* ignore */ }
   };
-  document.addEventListener('pointerdown', unlockAudioEngine, { once: true });
+  // 優化：同時綁定多種觸控與點擊事件，確保 iOS Safari 語音引擎 100% 成功解鎖
+  ['pointerdown', 'touchstart', 'click'].forEach(evt => {
+    document.addEventListener(evt, unlockAudioEngine, { once: true });
+  });
 
   const traceCanvas = new TraceCanvas('trace-canvas', 'ink-canvas', 'stroke-badge');
 
@@ -48,7 +51,7 @@ function initApp() {
   const btnConfirmWord = document.getElementById('btn-confirm-word') as HTMLButtonElement;
   const btnHint = document.getElementById('btn-hint') as HTMLButtonElement;
   const btnClear = document.getElementById('btn-clear') as HTMLButtonElement;
-  const btnSkip = document.getElementById('btn-skip') as HTMLButtonElement;
+  const btnSkip = document.getElementById('btn-skip') as HTMLButtonElement | null;
 
   let tokens: DictationToken[] = [];
   let currentIndex = 0;
@@ -95,12 +98,15 @@ function initApp() {
     }
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeoutMs);
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(id);
-    return response;
+    try {
+      return await fetch(url, { signal: controller.signal });
+    } finally {
+      // 優化：確保 fetch 無論成功、404 或拋錯，都會清理計時器，防內存洩漏
+      clearTimeout(id);
+    }
   };
 
-  // 優化 1：直接建立基礎字元集索引，無需等待外部 JSON，實現 0 毫秒冷啟動
+  // 直接建立基礎字元集索引，無需等待外部 JSON，實現 0 毫秒冷啟動
   const preloadCandidatePool = async () => {
     const uniqueChars = Array.from(new Set(Array.from(CORE_COMMON_CHARS)));
     for (const ch of uniqueChars) {
@@ -290,7 +296,6 @@ function initApp() {
       if (reqId !== loadRequestId) return;
       
       if (!res.ok) {
-        // 優化 2：遇到 JSON 404 時不報錯，直接構造空資料庫交給視覺掃描引擎
         const fallbackData: StrokeData = { char: targetChar, unicode, totalStrokes: 0, strokes: [], medians: [] };
         charCache.set(targetChar, fallbackData);
         traceCanvas.loadDictationTarget(fallbackData);
@@ -319,6 +324,7 @@ function initApp() {
       if (navigator.vibrate) navigator.vibrate(25);
       tokens[currentIndex].revealed = true;
 
+      // 追蹤字形掃描補底過關（缺字）標記
       if (result.i18nKey === 'verifyFallbackSuccess') {
         tokens[currentIndex].skipped = true;
       }
@@ -380,7 +386,7 @@ function initApp() {
     parentPanel.open = false;
     btnHint.style.display = 'none';
     btnSpeakChar.style.display = 'none';
-    btnSkip.style.display = 'none';
+    if (btnSkip) btnSkip.style.display = 'none';
     candidateBar.style.display = 'none';
 
     tokens = Array.from({ length: 20 }, () => ({
@@ -404,7 +410,7 @@ function initApp() {
     parentPanel.open = false;
     btnHint.style.display = 'inline-block';
     btnSpeakChar.style.display = 'inline-block';
-    btnSkip.style.display = 'inline-block';
+    if (btnSkip) btnSkip.style.display = 'inline-block';
     candidateBar.style.display = 'none';
 
     const punctRegex = /[，。！？、；：「」『』（）\n\r\s,.!?;:'"()]/;
@@ -446,16 +452,18 @@ function initApp() {
   btnHint.addEventListener('click', () => traceCanvas.flashHint(1800));
   btnClear.addEventListener('click', () => traceCanvas.clearInk());
 
-  btnSkip.addEventListener('click', () => {
-    if (isFreeWriteMode || currentIndex >= tokens.length) return;
-    const skippedChar = tokens[currentIndex].char;
-    tokens[currentIndex].revealed = true;
-    tokens[currentIndex].skipped = true;
-    showBanner(t('msgSkipped', { char: skippedChar }));
-    traceCanvas.clearInk();
-    currentIndex++;
-    loadCurrentTarget();
-  });
+  if (btnSkip) {
+    btnSkip.addEventListener('click', () => {
+      if (isFreeWriteMode || currentIndex >= tokens.length) return;
+      const skippedChar = tokens[currentIndex].char;
+      tokens[currentIndex].revealed = true;
+      tokens[currentIndex].skipped = true;
+      showBanner(t('msgSkipped', { char: skippedChar }));
+      traceCanvas.clearInk();
+      currentIndex++;
+      loadCurrentTarget();
+    });
+  }
 
   const checkSavedSession = () => {
     try {
@@ -470,7 +478,7 @@ function initApp() {
           currentIndex = parsed.currentIndex;
           btnHint.style.display = 'inline-block';
           btnSpeakChar.style.display = 'inline-block';
-          btnSkip.style.display = 'inline-block';
+          if (btnSkip) btnSkip.style.display = 'inline-block';
           loadCurrentTarget();
           showBanner(t('msgRestored'));
           return;
