@@ -1,70 +1,97 @@
 <!DOCTYPE html>
 <html lang="zh-HK">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>童温默書 KidsPrepDictate</title>
-    <meta name="description" content="純前端、可離線運作的香港小學繁體字手寫默書應用程式" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="童温默書" />
-    <meta name="theme-color" content="#b71c1c" />
-    <link rel="stylesheet" href="/src/style.css" />
-  </head>
-  <body>
-    <div id="app">
-      <header>
-        <div class="top-bar">
-          <h1 data-i18n="appTitle">童温默書</h1>
-          <div class="header-actions">
-            <span id="progress-pill" class="progress-pill" role="status" aria-live="polite">自由模式：已寫 0 字</span>
-            <button type="button" id="btn-lang-toggle" class="btn-lang" aria-label="Switch Language">EN</button>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>童温默書 KidsPrepDictate</title>
+  <meta name="description" content="純前端、可離線運作的香港小學繁體字與英文默書應用程式" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="童温默書" />
+  <meta name="theme-color" content="#b71c1c" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="top-bar">
+        <h1 data-i18n="appTitle">童温默書</h1>
+        <div class="header-actions">
+          <span id="progress-pill" class="progress-pill" role="status" aria-live="polite">自由模式：已寫 0 字</span>
+          <button type="button" id="btn-lang-toggle" class="btn-lang" data-i18n-aria-label="switchLang" aria-label="切換至英文介面">EN</button>
+        </div>
+      </div>
+    </header>
+
+    <details id="parent-panel" class="parent-panel">
+      <summary data-i18n="parentSummary">📝 家長出題 / 切換模式（點擊展開）</summary>
+
+      <div class="mode-group subject-toggle">
+        <label><input type="radio" name="subject" value="zh" checked /> <span data-i18n="subjectZh">🇭🇰 中文默書</span></label>
+        <label><input type="radio" name="subject" value="en" /> <span data-i18n="subjectEn">🇬🇧 英文默書</span></label>
+      </div>
+
+      <div class="mode-group">
+        <button type="button" id="btn-free-mode" class="btn-secondary full-width" data-i18n="btnFreeMode">✍️ 切換至「無家長自由寫字模式」</button>
+      </div>
+
+      <div class="mode-group">
+        <textarea id="input-passage" rows="3" data-i18n-placeholder="passagePlaceholder" placeholder="貼上默書課文（中文例：牀前明月光 / 英文例：apple, banana, ice cream）" aria-label="默書課文輸入框"></textarea>
+
+        <div id="en-options-wrapper" class="en-options-box" style="display: none;">
+          <label class="sys-kb-label">
+            <input type="checkbox" id="use-sys-kb" />
+            <span data-i18n="sysKbLabel">允許使用系統鍵盤（高小 / 藍牙鍵盤適用）</span>
+          </label>
+          <label class="sys-kb-label">
+            <input type="checkbox" id="en-fuzzy-mode" />
+            <span data-i18n="enFuzzyLabel">初小寬鬆容錯（差 1 個字母亦算過關並提醒）</span>
+          </label>
+          <div class="hint-level-row">
+            <span data-i18n="enHintLevelLabel">英文提示強度：</span>
+            <select id="en-hint-level" aria-label="英文提示強度">
+              <option value="first" data-i18n="hintOptFirst">首字母（a _ _ _ _）</option>
+              <option value="firstTwo" data-i18n="hintOptFirstTwo">前兩字母（a p _ _ _）</option>
+              <option value="full" data-i18n="hintOptFull">完整單字（apple）</option>
+            </select>
           </div>
         </div>
-      </header>
 
-      <!-- 家長出題與模式切換 -->
-      <details id="parent-panel" class="parent-panel">
-        <summary data-i18n="parentSummary">📝 家長出題 / 切換模式（點擊展開）</summary>
-        <div class="parent-controls">
-          <div class="mode-group">
-            <button type="button" id="btn-free-mode" class="btn-secondary full-width" data-i18n="btnFreeMode">✍️ 切換至「無家長自由寫字模式」</button>
-          </div>
-          <div class="mode-group">
-            <textarea id="input-passage" rows="3" data-i18n-placeholder="passagePlaceholder" placeholder="貼上整段默書課文（例：牀前明月光，疑是地上霜。）" aria-label="默書課文輸入框"></textarea>
-            <button type="button" id="btn-start-passage" class="btn-primary full-width" data-i18n="btnStartPassage">鎖定整段課文並開始默書</button>
-          </div>
-        </div>
-      </details>
+        <button type="button" id="btn-start-passage" class="btn-primary full-width" data-i18n="btnStartPassage">鎖定整段課文並開始默書</button>
+      </div>
+    </details>
 
-      <!-- 上半部：整段課文逐字彈出區 -->
-      <section class="passage-board-wrapper" aria-label="默書進度區">
-        <div class="passage-toolbar">
-          <button type="button" id="btn-speak-sentence" class="btn-secondary" data-i18n="btnSpeakSentence">🔊 朗讀段落</button>
-          <button type="button" id="btn-speak-char" class="btn-secondary" data-i18n="btnSpeakChar">🗣️ 讀出當前字</button>
-        </div>
-        <div id="sentence-slots" class="sentence-slots" aria-live="polite"></div>
-      </section>
-
-      <!-- 下半部：固定手寫板工作區 -->
-      <section class="dictation-workspace" aria-label="手寫區">
-        <div id="feedback-banner" class="warning-banner" role="alert"></div>
-        <div id="candidate-bar" class="candidate-bar" style="display: none;" aria-label="選字修正"></div>
-
-        <div class="canvas-container">
-          <div id="stroke-badge" class="stroke-badge" aria-live="polite">自由寫字（已寫 0 劃）</div>
-          <canvas id="trace-canvas" class="canvas-layer trace-layer"></canvas>
-          <canvas id="ink-canvas" class="canvas-layer ink-layer"></canvas>
-        </div>
-
-        <div class="playback-controls">
-          <button type="button" id="btn-confirm-word" class="btn-primary-solid" data-i18n="btnConfirm">✅ 確認寫完</button>
-          <button type="button" id="btn-hint" data-i18n="btnHint">💡 偷睇筆順</button>
-          <button type="button" id="btn-clear" class="btn-danger" data-i18n="btnClear">🧹 重寫本字</button>
-          <button type="button" id="btn-skip" class="btn-secondary" style="display: none;" data-i18n="btnSkip">⏭️ 唔識跳過</button>
-        </div>
-      </section>
+    <div class="toolbar">
+      <button type="button" id="btn-speak-sentence" class="btn-icon" data-i18n="btnSpeakSentence">🔊 朗讀段落</button>
+      <button type="button" id="btn-speak-char" class="btn-icon" data-i18n="btnSpeakChar">🗣️ 讀出當前字</button>
+      <button type="button" id="btn-slow-listen" class="btn-icon" style="display: none;" data-i18n="btnSlowListen">🐢 慢慢聽</button>
     </div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+
+    <div id="sentence-slots" class="sentence-slots" aria-live="polite"></div>
+    <div id="feedback-banner" class="feedback-banner" role="alert" style="display: none;"></div>
+    <div id="candidate-bar" class="candidate-bar" style="display: none;"></div>
+
+    <div id="zh-workspace" class="workspace-container">
+      <div class="canvas-container">
+        <span id="stroke-badge" class="stroke-badge">自由寫字（已寫 0 劃）</span>
+        <canvas id="trace-canvas" class="trace-canvas"></canvas>
+        <canvas id="ink-canvas" class="ink-canvas"></canvas>
+      </div>
+    </div>
+
+    <div id="en-workspace" class="workspace-container" style="display: none;">
+      <input type="text" id="sys-en-input" class="sys-en-input" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" />
+      <div id="en-display" class="en-display" aria-live="polite"></div>
+      <div id="en-keyboard" class="en-keyboard"></div>
+    </div>
+
+    <div class="action-bar">
+      <button type="button" id="btn-confirm-word" class="btn-success" data-i18n="btnConfirm">✅ 確認寫完</button>
+      <button type="button" id="btn-hint" class="btn-warning" data-i18n="btnHint">💡 偷睇筆順</button>
+      <button type="button" id="btn-clear" class="btn-danger" data-i18n="btnClear">🧹 重寫本字</button>
+      <button type="button" id="btn-skip" class="btn-secondary" data-i18n="btnSkip">⏭️ 唔識跳過</button>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
 </html>
