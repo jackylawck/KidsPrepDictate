@@ -108,7 +108,7 @@ h1 {
   color: #ffffff;
 }
 
-/* === 3. 家長出題折疊面板 === */
+/* === 3. 家長出題面板與科目切換 === */
 .parent-panel {
   flex-shrink: 0;
   background: var(--surface-color);
@@ -125,17 +125,83 @@ h1 {
   cursor: pointer;
 }
 
-.parent-controls {
-  padding: 10px 12px 12px 12px;
+.mode-group {
+  padding: 0 12px 10px 12px;
+}
+
+.subject-toggle {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding: 10px 12px;
   border-top: 1px dashed #ffcdd2;
+}
+
+.subject-toggle label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1.5px solid #d7ccc8;
+  border-radius: 8px;
+  background: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  color: #555;
+  transition: all 0.2s;
+}
+
+.subject-toggle label:has(input:checked) {
+  border-color: #b71c1c;
+  background: #ffebee;
+  color: #b71c1c;
+}
+
+.subject-toggle input[type="radio"] {
+  display: none;
+}
+
+.en-options-box {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.sys-kb-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  color: #444;
+  cursor: pointer;
+}
+
+.hint-level-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.88rem;
+  color: #444;
+  padding-top: 4px;
+}
+
+.hint-level-row select {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  background: #fff;
+  font-size: 0.88rem;
 }
 
 .parent-panel textarea {
   width: 100%;
-  margin: 4px 0 8px 0;
   padding: 8px 10px;
   font-size: 1rem;
   border: 2px solid var(--primary-color);
@@ -148,9 +214,10 @@ h1 {
   width: 100%;
 }
 
+/* 按鈕共用樣式 */
 .btn-primary {
   padding: 10px;
-  font-size: 0.92rem;
+  font-size: 0.95rem;
   font-weight: bold;
   background-color: var(--primary-color);
   color: white;
@@ -159,70 +226,82 @@ h1 {
   cursor: pointer;
   transition: opacity 0.15s;
 }
+.btn-primary:active { opacity: 0.8; }
 
-.btn-primary:active {
-  opacity: 0.8;
+.btn-secondary {
+  padding: 8px 12px;
+  background-color: #f5f5f5;
+  color: #555;
+  border: 1px solid #d0d0d0;
+  border-radius: var(--radius-md);
+  font-size: 0.88rem;
+  font-weight: bold;
+  cursor: pointer;
 }
+.btn-secondary:active { background-color: #e0e0e0; }
 
-/* === 4. 上半部：整段課文彈出區 === */
-.passage-board-wrapper {
-  flex: 1;
-  min-height: 96px;
-  background: var(--surface-color);
-  padding: 10px;
-  border-radius: var(--radius-lg);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
+.btn-success { background-color: var(--secondary-color); color: white; border: none; }
+.btn-warning { background-color: #ffb300; color: #333; border: none; }
+.btn-danger { background-color: #ffebee; color: var(--primary-color); border: 1px solid #ffcdd2; }
 
-.passage-toolbar {
+/* === 4. 工具列與進度展示區 === */
+.toolbar {
   flex-shrink: 0;
   display: flex;
   justify-content: center;
   gap: 8px;
-  margin-bottom: 8px;
+  padding: 2px 0;
 }
 
-.btn-secondary {
-  padding: 6px 12px;
+.btn-icon {
+  padding: 6px 14px;
   background-color: #e0f2f1;
   color: var(--secondary-dark);
   border: 1px solid var(--secondary-color);
-  border-radius: 16px;
-  font-size: 0.84rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
   font-weight: bold;
   cursor: pointer;
   white-space: nowrap;
 }
-
-.btn-secondary:active {
-  background-color: #b2dfdb;
-}
+.btn-icon:active { background-color: #b2dfdb; }
 
 .sentence-slots {
   flex: 1;
   overflow-y: auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(42px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   align-content: start;
   gap: 6px;
-  padding: 4px 2px;
+  padding: 8px;
+  background: var(--surface-color);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
 .char-slot {
   aspect-ratio: 1 / 1;
+  width: 44px;
   border: 1.5px dashed #bdbdbd;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.35rem;
+  font-size: 1.4rem;
   font-weight: bold;
   color: var(--text-main);
   background: #fafafa;
   will-change: transform;
+}
+
+/* P2-1：防止英文長詞被壓扁 */
+.sentence-slots.en-mode .char-slot {
+  aspect-ratio: auto;
+  min-width: 56px;
+  min-height: 44px;
+  width: auto;
+  padding: 0 12px;
+  white-space: nowrap;
 }
 
 .char-slot.active {
@@ -245,43 +324,35 @@ h1 {
   background: transparent;
   font-size: 1.2rem;
   color: var(--text-muted);
+  width: auto;
+  min-width: 16px;
 }
 
-/* === 5. 下半部：固定手寫板工作區 === */
-.dictation-workspace {
-  flex-shrink: 0;
-  background: var(--surface-color);
-  padding: 10px 10px 12px 10px;
-  border-radius: var(--radius-lg);
-  box-shadow: 0 -2px 10px rgba(0,0,0,0.06);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  position: relative;
-}
-
-.warning-banner {
+/* === 5. 提示橫幅 === */
+.feedback-banner {
   position: absolute;
-  top: -36px;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  width: 94%;
-  padding: 6px 12px;
-  background-color: #323232;
+  transform: translate(-50%, -50%);
+  width: 90%;
+  max-width: 320px;
+  padding: 12px;
+  background-color: rgba(50, 50, 50, 0.95);
   color: #ffffff;
-  font-size: 0.84rem;
+  font-size: 1rem;
   font-weight: bold;
-  border-radius: 20px;
+  border-radius: 12px;
   text-align: center;
-  display: none;
-  z-index: 30;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+  z-index: 50;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  backdrop-filter: blur(4px);
 }
 
-.warning-banner.warning-error {
-  background-color: #c62828;
+.feedback-banner.warning-error {
+  background-color: rgba(198, 40, 40, 0.95);
 }
 
+/* 自由模式選字修正 */
 .candidate-bar {
   display: flex;
   align-items: center;
@@ -291,16 +362,20 @@ h1 {
   margin-bottom: 8px;
 }
 
-.candidate-bar button {
-  min-width: 36px;
-  min-height: 34px;
-  transition: transform 0.1s;
+/* === 6. 工作區 (中/英切換) === */
+.workspace-container {
+  flex-shrink: 0;
+  background: var(--surface-color);
+  padding: 12px 10px;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.06);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
 }
 
-.candidate-bar button:active {
-  transform: scale(0.94);
-}
-
+/* 中文：米字格手寫板 */
 .canvas-container {
   position: relative;
   width: min(76vw, 41dvh, 360px);
@@ -314,8 +389,7 @@ h1 {
   touch-action: none;
 }
 
-#trace-canvas,
-#ink-canvas {
+#trace-canvas, #ink-canvas {
   position: absolute;
   top: 0;
   left: 0;
@@ -323,7 +397,6 @@ h1 {
   height: 100%;
   display: block;
 }
-
 #trace-canvas { z-index: 1; pointer-events: none; }
 #ink-canvas { z-index: 2; cursor: crosshair; touch-action: none; }
 
@@ -341,78 +414,159 @@ h1 {
   pointer-events: none;
 }
 
-/* 底部 4 顆操作按鈕：確保 iPhone 直屏下單行不擠壓換行 */
-.playback-controls {
+/* 英文：隱藏輸入框與打字區 */
+.sys-en-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+}
+
+.en-display {
+  min-height: 76px;
+  width: 100%;
+  max-width: 500px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 2.1rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  margin-bottom: 14px;
+  padding: 12px 10px;
+  background: #fff;
+  border: 2px dashed #90caf9;
+  border-radius: 12px;
+}
+
+.en-char-slot {
+  display: inline-block;
+  min-width: 26px;
+  text-align: center;
+  border-bottom: 3px solid #37474f;
+  color: #1565c0;
+  text-transform: lowercase;
+  line-height: 1.2;
+}
+
+.en-char-slot.empty {
+  color: transparent;
+}
+
+.en-char-slot.space {
+  border-bottom: none;
+  width: 18px;
+}
+
+.en-char-slot.hint {
+  color: #b71c1c;
+  border-bottom-color: #b71c1c;
+}
+
+/* 英文：觸控虛擬鍵盤 */
+.en-keyboard {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.en-kb-row {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+}
+
+.en-key {
+  flex: 1;
+  min-width: 28px;
+  max-width: 46px;
+  height: 48px;
+  background: #fff;
+  border: 1px solid #cfd8dc;
+  border-radius: 8px;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #263238;
+  box-shadow: 0 2px 0 #b0bec5;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.en-key:active {
+  transform: translateY(2px);
+  box-shadow: 0 0 0 #b0bec5;
+  background: #e3f2fd;
+}
+
+.en-key.wide {
+  flex: 1.6;
+  max-width: 68px;
+  font-size: 1.15rem;
+  background: #eceff1;
+}
+
+.en-key.confirm-key {
+  background: #e8f5e9;
+  border-color: #81c784;
+  color: #2e7d32;
+}
+
+.en-key.space {
+  flex: 1;
+  max-width: 240px;
+  height: 44px;
+  font-size: 0.95rem;
+  background: #f5f5f5;
+}
+
+/* === 7. 底部動作列 (確認/提示/清除/跳過) === */
+.action-bar {
+  flex-shrink: 0;
   display: flex;
   gap: 6px;
-  margin-top: 10px;
+  padding: 0 10px 10px 10px;
   justify-content: center;
   width: 100%;
 }
 
-.playback-controls button {
+.action-bar button {
   flex: 1;
   min-width: 0;
   max-width: 130px;
-  padding: 9px 4px;
-  background: white;
-  border: 1px solid var(--border-color);
+  padding: 10px 4px;
   border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   font-weight: bold;
-  color: var(--text-main);
+  cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   transition: opacity 0.15s;
 }
 
-.playback-controls button:active {
+.action-bar button:active {
   opacity: 0.7;
 }
 
-.playback-controls button.btn-primary-solid {
-  background-color: var(--secondary-color);
-  color: white;
-  border-color: var(--secondary-color);
-}
-
-.playback-controls button.btn-danger {
-  color: var(--primary-color);
-  border-color: #ffcdd2;
-}
-
-.playback-controls button.btn-secondary {
-  background-color: #f5f5f5;
-  color: #555555;
-  border-color: #d0d0d0;
-  border-radius: 8px;
-}
-
-/* === 6. GPU 硬體加速動畫 === */
+/* === 8. GPU 硬體加速動畫 === */
 @keyframes popReveal {
-  0% {
-    transform: scale3d(0.3, 0.3, 1);
-    opacity: 0;
-  }
-  70% {
-    transform: scale3d(1.15, 1.15, 1);
-    opacity: 1;
-  }
-  100% {
-    transform: scale3d(1, 1, 1);
-    opacity: 1;
-  }
+  0% { transform: scale3d(0.3, 0.3, 1); opacity: 0; }
+  70% { transform: scale3d(1.15, 1.15, 1); opacity: 1; }
+  100% { transform: scale3d(1, 1, 1); opacity: 1; }
 }
 
 @keyframes breathe {
-  0% {
-    box-shadow: 0 0 4px rgba(183, 28, 28, 0.2);
-    border-color: rgba(183, 28, 28, 0.6);
-  }
-  100% {
-    box-shadow: 0 0 10px rgba(183, 28, 28, 0.6);
-    border-color: rgba(183, 28, 28, 1);
-  }
+  0% { box-shadow: 0 0 4px rgba(183, 28, 28, 0.2); border-color: rgba(183, 28, 28, 0.6); }
+  100% { box-shadow: 0 0 10px rgba(183, 28, 28, 0.6); border-color: rgba(183, 28, 28, 1); }
 }
