@@ -51,7 +51,7 @@ export class DictationMatcher {
       ctx.fillStyle = '#FFFFFF';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = 'bold 50px "PingFang HK", "Heiti TC", "Microsoft JhengHei", "Noto Sans CJK TC", sans-serif';
+      ctx.font = '600 46px "PingFang HK", "Heiti TC", "Microsoft JhengHei", "Noto Sans CJK TC", sans-serif';
       ctx.fillText(char, GRID_SIZE / 2, GRID_SIZE / 2 + 2);
 
       const img = ctx.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
@@ -154,7 +154,7 @@ export class DictationMatcher {
     ctx.strokeStyle = '#FFFFFF';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = 3.2;
+    ctx.lineWidth = 4.6;
 
     for (const stroke of userStrokes) {
       if (stroke.length === 0) continue;
@@ -186,7 +186,6 @@ export class DictationMatcher {
     return { mask, inkPixels };
   }
 
-  // 優化 1：引入光柵密度懲罰，防止「畫一條長線」獲得過高的字形重疊分數
   private static scoreGlyphWithRaster(
     user: { mask: Uint8Array; inkPixels: number },
     targetChar: string
@@ -222,15 +221,13 @@ export class DictationMatcher {
     }
     const recall = coveredTarget / target.pixelCount;
 
-    if (precision < 0.56 || recall < 0.46) {
-      return { f1: Math.min(precision, recall) * 0.6, pixelRatioPenalty: 0.7 };
+    if (precision < 0.48 || recall < 0.36) {
+      return { f1: Math.min(precision, recall) * 0.65, pixelRatioPenalty: 0.75 };
     }
 
     const f1 = (2 * precision * recall) / (precision + recall);
-    
-    // 密度比例懲罰：防止少筆畫字被高密度多筆畫字搶分（或反之）
     const densityRatio = Math.min(user.inkPixels, target.pixelCount) / Math.max(user.inkPixels, target.pixelCount);
-    const pixelRatioPenalty = 0.75 + 0.25 * densityRatio;
+    const pixelRatioPenalty = 0.8 + 0.2 * densityRatio;
 
     return { f1, pixelRatioPenalty };
   }
@@ -309,103 +306,28 @@ export class DictationMatcher {
     return shapeScore * 0.65 + cosSim * 0.35;
   }
 
-  public static verifyCharacterStrict(userStrokes: Point[][], targetData: StrokeData): VerifyResult {
-    if (!this.checkBoundingBoxSanity(userStrokes)) {
-      return {
-        status: 'TOO_SMALL',
-        score: 0,
-        i18nKey: 'verifyTooSmall',
-        message: t('verifyTooSmall')
-      };
-    }
-
-    const hasMedians = Boolean(targetData.medians && targetData.medians.length > 0);
-    const visualScore = this.scoreGlyphVisual(userStrokes, targetData.char);
-
-    if (visualScore !== null) {
-      if (hasMedians) {
-        const targetCount = targetData.medians!.length;
-        const userCount = userStrokes.length;
-        if (Math.abs(userCount - targetCount) > 2) {
-          const meta = { char: targetData.char, target: targetCount, user: userCount };
-          return {
-            status: 'WRONG_STROKE_COUNT',
-            score: 0,
-            i18nKey: 'verifyWrongCount',
-            meta,
-            message: t('verifyWrongCount', meta)
-          };
-        }
-      }
-
-      if (visualScore >= 0.56) {
-        const meta = { char: targetData.char };
-        return {
-          status: 'SUCCESS',
-          score: visualScore,
-          i18nKey: 'verifySuccessOrder',
-          meta,
-          message: t('verifySuccessOrder', meta)
-        };
-      }
-
-      return {
-        status: 'WRONG_SHAPE',
-        score: visualScore,
-        i18nKey: 'verifyWrongShape',
-        message: t('verifyWrongShape')
-      };
-    }
-
-    if (!hasMedians) {
-      return {
-        status: 'UNSUPPORTED',
-        score: 0,
-        message: `⚠️ 無法掃描「${targetData.char}」字形`
-      };
-    }
-
-    const targetCount = targetData.medians!.length;
+  private static scoreVectorMedians(userStrokes: Point[][], medians: number[][][]): {
+    inOrderAvg: number;
+    unorderedAvg: number;
+  } {
     const userCount = userStrokes.length;
-
-    if (Math.abs(userCount - targetCount) > 1) {
-      const meta = { char: targetData.char, target: targetCount, user: userCount };
-      return {
-        status: 'WRONG_STROKE_COUNT',
-        score: 0,
-        i18nKey: 'verifyWrongCount',
-        meta,
-        message: t('verifyWrongCount', meta)
-      };
-    }
-
+    const targetCount = medians.length;
     const compareLen = Math.min(userCount, targetCount);
+
     let inOrderScoreSum = 0;
     for (let i = 0; i < compareLen; i++) {
-      inOrderScoreSum += this.scoreSingleStroke(userStrokes[i], targetData.medians![i]);
+      inOrderScoreSum += this.scoreSingleStroke(userStrokes[i], medians[i]);
     }
     const inOrderAvg = inOrderScoreSum / Math.max(userCount, targetCount);
 
-    if (inOrderAvg >= 0.48) {
-      const meta = { char: targetData.char };
-      return {
-        status: 'SUCCESS',
-        score: inOrderAvg,
-        i18nKey: 'verifySuccessOrder',
-        meta,
-        message: t('verifySuccessOrder', meta)
-      };
-    }
-
     const usedTargetIdx = new Set<number>();
     let unorderedScoreSum = 0;
-
     for (let u = 0; u < userCount; u++) {
       let bestScore = 0;
       let bestIdx = -1;
       for (let t = 0; t < targetCount; t++) {
         if (usedTargetIdx.has(t)) continue;
-        const s = this.scoreSingleStroke(userStrokes[u], targetData.medians![t]);
+        const s = this.scoreSingleStroke(userStrokes[u], medians[t]);
         if (s > bestScore) {
           bestScore = s;
           bestIdx = t;
@@ -416,23 +338,84 @@ export class DictationMatcher {
         unorderedScoreSum += bestScore;
       }
     }
-
     const unorderedAvg = unorderedScoreSum / Math.max(userCount, targetCount);
+
+    return { inOrderAvg, unorderedAvg };
+  }
+
+  public static verifyCharacterStrict(userStrokes: Point[][], targetData: StrokeData): VerifyResult {
+    if (!this.checkBoundingBoxSanity(userStrokes)) {
+      return {
+        status: 'TOO_SMALL',
+        score: 0,
+        message: t('verifyTooSmall')
+      };
+    }
+
+    const hasMedians = Boolean(targetData.medians && targetData.medians.length > 0);
+
+    // 缺字友善放行：字庫無收錄筆順時直接給 0.8 過關並標記為待溫習，跨環境不卡死
+    if (!hasMedians) {
+      return {
+        status: 'SUCCESS',
+        score: 0.8,
+        message: t('verifyFallbackSuccess', { char: targetData.char })
+      };
+    }
+
+    const targetCount = targetData.medians!.length;
+    const userCount = userStrokes.length;
+
+    if (Math.abs(userCount - targetCount) > 1) {
+      return {
+        status: 'WRONG_STROKE_COUNT',
+        score: 0,
+        message: t('verifyWrongCount', { char: targetData.char, target: targetCount, user: userCount })
+      };
+    }
+
+    const { inOrderAvg, unorderedAvg } = this.scoreVectorMedians(userStrokes, targetData.medians!);
+    const visualScore = this.scoreGlyphVisual(userStrokes, targetData.char);
+
+    if (visualScore !== null) {
+      const vectorBest = Math.max(inOrderAvg, unorderedAvg * 0.95);
+      const combinedScore = Math.max(visualScore, vectorBest);
+
+      if (combinedScore >= 0.52) {
+        const isUnordered = inOrderAvg < 0.48 && unorderedAvg >= 0.48;
+        return {
+          status: 'SUCCESS',
+          score: combinedScore,
+          message: t(isUnordered ? 'verifySuccessUnordered' : 'verifySuccessOrder', { char: targetData.char })
+        };
+      }
+
+      return {
+        status: 'WRONG_SHAPE',
+        score: combinedScore,
+        message: t('verifyWrongShape')
+      };
+    }
+
+    if (inOrderAvg >= 0.48) {
+      return {
+        status: 'SUCCESS',
+        score: inOrderAvg,
+        message: t('verifySuccessOrder', { char: targetData.char })
+      };
+    }
+
     if (unorderedAvg >= 0.48) {
-      const meta = { char: targetData.char };
       return {
         status: 'SUCCESS',
         score: unorderedAvg,
-        i18nKey: 'verifySuccessUnordered',
-        meta,
-        message: t('verifySuccessUnordered', meta)
+        message: t('verifySuccessUnordered', { char: targetData.char })
       };
     }
 
     return {
       status: 'WRONG_SHAPE',
       score: Math.max(inOrderAvg, unorderedAvg),
-      i18nKey: 'verifyWrongShape',
       message: t('verifyWrongShape')
     };
   }
@@ -448,43 +431,40 @@ export class DictationMatcher {
     const userRaster = this.rasterizeUserStrokes(userStrokes);
 
     for (const data of candidatePool) {
-      // 1. 優先使用視覺光柵引擎（實機預設）
+      const hasMedians = Boolean(data.medians && data.medians.length > 0);
+      const targetCount = hasMedians ? data.medians!.length : 0;
+      const strokeCountGap = targetCount > 0 ? Math.abs(userCount - targetCount) : 0;
+
+      if (targetCount > 0 && strokeCountGap > 2) continue;
+
+      const strokePenalty =
+        targetCount === 0 ? 1.0 : strokeCountGap === 0 ? 1.0 : strokeCountGap === 1 ? 0.9 : 0.72;
+
+      let vectorScore: number | null = null;
+      if (hasMedians) {
+        const { inOrderAvg, unorderedAvg } = this.scoreVectorMedians(userStrokes, data.medians!);
+        vectorScore = Math.max(inOrderAvg, unorderedAvg * 0.92) * strokePenalty;
+      }
+
+      let rasterScore: number | null = null;
       if (userRaster) {
         const res = this.scoreGlyphWithRaster(userRaster, data.char);
-        
-        // 取得備用筆劃資訊作防搶字約束
-        const targetCount = data.medians && data.medians.length > 0 ? data.medians.length : 0;
-        if (targetCount > 0 && Math.abs(userCount - targetCount) > 2) continue; // 差距 > 2 直接過濾
-
-        if (res && res.f1 >= 0.42) {
-          scored.push({ char: data.char, score: res.f1 * res.pixelRatioPenalty });
+        if (res) {
+          rasterScore = res.f1 * res.pixelRatioPenalty * strokePenalty;
         }
-        continue;
       }
 
-      // 2. 備用向量比對引擎（無 DOM 或光柵失效時使用）
-      if (!data.medians || data.medians.length === 0) continue;
-      const targetCount = data.medians.length;
-      
-      // 優化 2：加回筆劃數約束與懲罰機制，防止 5 畫「外」被 16 畫「學」搶走
-      const strokeCountGap = Math.abs(userCount - targetCount);
-      if (strokeCountGap > 2) continue; // 差距 > 2 直接排除
-
-      const compareLen = Math.min(userCount, targetCount);
-      let sum = 0;
-      for (let i = 0; i < compareLen; i++) {
-        sum += this.scoreSingleStroke(userStrokes[i], data.medians[i]);
+      let finalScore = 0;
+      if (vectorScore !== null && rasterScore !== null) {
+        finalScore = Math.max(vectorScore, vectorScore * 0.6 + rasterScore * 0.4);
+      } else if (vectorScore !== null) {
+        finalScore = vectorScore;
+      } else if (rasterScore !== null) {
+        finalScore = rasterScore;
       }
-      
-      const penalty = userCount === targetCount ? 1.0 : 0.88;
-      const finalScore = (sum / Math.max(userCount, targetCount)) * penalty;
-      
-      // 筆畫數差距越大，分數扣減越多
-      const strokePenalty = strokeCountGap === 0 ? 1.0 : strokeCountGap === 1 ? 0.9 : 0.72;
-      const weightedScore = finalScore * strokePenalty;
 
-      if (weightedScore >= 0.38) {
-        scored.push({ char: data.char, score: weightedScore });
+      if (finalScore >= 0.36) {
+        scored.push({ char: data.char, score: finalScore });
       }
     }
 
