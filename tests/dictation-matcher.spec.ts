@@ -34,43 +34,61 @@ const threeStrokesData: StrokeData = {
   ],
 };
 
+// 用於測試差距大於 2 畫會被直接排除
+const fourStrokesData: StrokeData = {
+  char: '四',
+  unicode: '56DB',
+  totalStrokes: 4,
+  strokes: [],
+  medians: [
+    [[100, 100], [100, 900]],
+    [[100, 100], [900, 100]],
+    [[300, 300], [300, 700]],
+    [[100, 900], [900, 900]]
+  ],
+};
+
 const line = (x1: number, y1: number, x2: number, y2: number, n = 12): Point[] =>
   Array.from({ length: n }, (_, i) => ({
     x: x1 + (x2 - x1) * (i / (n - 1)),
     y: y1 + (y2 - y1) * (i / (n - 1)),
   }));
 
-describe('DictationMatcher.verifyCharacterStrict（雙引擎版）', () => {
+describe('DictationMatcher.verifyCharacterStrict（雙引擎 + 多語系版）', () => {
   it('SUCCESS：正確筆順與位置', () => {
     const res = DictationMatcher.verifyCharacterStrict([line(100, 512, 900, 512)], yiData);
     expect(res.status).toBe('SUCCESS');
+    expect(res.i18nKey).toBe('verifySuccessOrder');
     expect(res.score).toBeGreaterThan(0.48);
   });
 
   it('SUCCESS（無順序容錯）：字形正確即使筆順倒轉亦友善放行', () => {
     const strokes = [
-      line(512, 900, 512, 100),
-      line(100, 512, 900, 512),
+      line(512, 900, 512, 100), // 先豎
+      line(100, 512, 900, 512), // 後橫
     ];
     const res = DictationMatcher.verifyCharacterStrict(strokes, shiData);
     expect(res.status).toBe('SUCCESS');
-    expect(res.message).toContain('留意下筆順');
+    expect(res.i18nKey).toBe('verifySuccessUnordered');
   });
 
   it('WRONG_STROKE_COUNT：筆畫數差距大於 1 畫時擋下', () => {
     const res = DictationMatcher.verifyCharacterStrict([line(100, 512, 900, 512)], threeStrokesData);
     expect(res.status).toBe('WRONG_STROKE_COUNT');
+    expect(res.i18nKey).toBe('verifyWrongCount');
   });
 
   it('WRONG_SHAPE：字形完全相反（由右至左）不通過', () => {
     const res = DictationMatcher.verifyCharacterStrict([line(900, 512, 100, 512)], yiData);
     expect(res.status).toBe('WRONG_SHAPE');
+    expect(res.i18nKey).toBe('verifyWrongShape');
   });
 
   it('TOO_SMALL：塗鴉面積過小', () => {
     const tiny = [line(500, 500, 510, 510, 4)];
     const res = DictationMatcher.verifyCharacterStrict(tiny, yiData);
     expect(res.status).toBe('TOO_SMALL');
+    expect(res.i18nKey).toBe('verifyTooSmall');
   });
 
   it('UNSUPPORTED（無 DOM 環境且缺 medians）：絕不無條件放水過關', () => {
@@ -83,6 +101,7 @@ describe('DictationMatcher.verifyCharacterStrict（雙引擎版）', () => {
     };
     const res = DictationMatcher.verifyCharacterStrict([line(100, 512, 900, 512)], noMedian);
     expect(res.status).toBe('UNSUPPORTED');
+    expect(res.message).toContain('無法掃描');
   });
 });
 
@@ -104,9 +123,20 @@ describe('DictationMatcher.recognizeTopCandidates', () => {
   it('「一」字形應命中「一」且排第一', () => {
     const result = DictationMatcher.recognizeTopCandidates(
       [line(100, 512, 900, 512)],
-      [yiData, shiData],
+      [yiData, shiData, threeStrokesData],
       3
     );
     expect(result[0]).toBe('一');
+  });
+
+  it('筆劃數懲罰機制：差距大於 2 畫的候選字會被直接排除', () => {
+    const result = DictationMatcher.recognizeTopCandidates(
+      [line(100, 512, 900, 512)], // 寫 1 畫
+      [yiData, shiData, threeStrokesData, fourStrokesData],
+      5
+    );
+    expect(result).toContain('一');
+    // gap = 3 (4畫 - 1畫)，應觸發 strokeCountGap > 2 被跳過
+    expect(result).not.toContain('四');
   });
 });
