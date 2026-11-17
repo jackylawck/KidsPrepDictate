@@ -19,12 +19,10 @@ export interface StrokeData {
   readonly medians?: number[][][];
 }
 
-/** 默書題目與進度狀態 Token */
+/** 默書題目與進度狀態 Token（自由寫字與選字修正時需動態更新 char） */
 export interface DictationToken {
-  readonly char: string;
-  readonly isPunctuation: boolean;
-  
-  // 執行期間會頻繁變更的狀態，不設 readonly
+  char: string;
+  isPunctuation: boolean;
   revealed: boolean;
   skipped?: boolean;
 }
@@ -38,18 +36,12 @@ export type VerifyStatus =
   | 'TOO_SMALL'
   | 'UNSUPPORTED';
 
-/** 
- * 雙引擎比對回傳結果 
- */
+/** 雙引擎比對回傳結果 */
 export interface VerifyResult {
   readonly status: VerifyStatus;
   readonly score: number;
   readonly message: string;
-  
-  // v1.1 建議：以明確語意取代 score === 0.8 的浮點數巧合判斷
   readonly isFallback?: boolean;
-  
-  // 保留未來多語系進階錯誤分級的擴充空間
   readonly i18nKey?: I18nKey;
   readonly meta?: Record<string, string | number>;
 }
