@@ -118,6 +118,7 @@ export type I18nKey = keyof typeof DICT.zh;
 
 let currentLang: Lang = 'zh';
 
+// 初始載入時設定語系
 try {
   if (typeof localStorage !== 'undefined') {
     const saved = localStorage.getItem(LANG_STORAGE_KEY);
@@ -138,16 +139,21 @@ export function setLang(lang: Lang): void {
       localStorage.setItem(LANG_STORAGE_KEY, lang);
     }
   } catch { /* ignore */ }
+  
   if (typeof document !== 'undefined') {
     document.documentElement.lang = lang === 'zh' ? 'zh-HK' : 'en';
   }
 }
 
+/**
+ * 效能優化版變數替換：使用正則表達式取代 split/join 減少陣列創建的 GC 開銷
+ */
 export function t(key: I18nKey, vars?: Record<string, string | number>): string {
   let text: string = DICT[currentLang][key] || DICT.zh[key];
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
-      text = text.split(`{${k}}`).join(String(v));
+      // 匹配所有出現的 {k} 變數
+      text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
     }
   }
   return text;
@@ -177,8 +183,11 @@ export function applyI18n(root: ParentNode = document): void {
     }
   });
 
-  const langBtn = document.getElementById('btn-lang-toggle');
-  if (langBtn) langBtn.textContent = t('langBtn');
+  // 特別處理頂部切換按鈕，只有在 root 為 document 時才執行，避免 fragment 找不到
+  if (root === document) {
+    const langBtn = document.getElementById('btn-lang-toggle');
+    if (langBtn) langBtn.textContent = t('langBtn');
+  }
 }
 
 export function bindLangToggle(): void {
@@ -186,8 +195,8 @@ export function bindLangToggle(): void {
 
   const btn = document.getElementById('btn-lang-toggle') as HTMLButtonElement | null;
   if (!btn || btn.dataset.bound === '1') return;
+  
   btn.dataset.bound = '1';
-
   btn.addEventListener('click', () => {
     setLang(currentLang === 'zh' ? 'en' : 'zh');
     applyI18n();
@@ -195,8 +204,10 @@ export function bindLangToggle(): void {
   });
 }
 
+// 啟動與防閃爍同步
 if (typeof document !== 'undefined') {
   document.documentElement.lang = currentLang === 'zh' ? 'zh-HK' : 'en';
+  
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
       applyI18n();
