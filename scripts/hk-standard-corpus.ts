@@ -24,7 +24,6 @@ const COHORT_GROUP_3 = [
 ];
 
 // 4. 港標傳承異體與 L1 拓撲爭議字 (檢驗專家容忍度, 15字)
-// 修正 P2：拔除「台/梁/拔」等非異體字，補入「角(中豎穿頭)」、「告(牛口分離)」、「骨(橫折彎鉤)」等經典爭議
 const COHORT_GROUP_4 = [
   "羣","衞","綫","鈎","麪","裏","床","着","真","直",
   "骨","角","告","草","黃"
@@ -40,7 +39,8 @@ const COHORT_GROUP_6 = [
   "勗","晟","卸","莓","趺","紉","芟","譫","曚","戩"
 ];
 
-export const HK_SAMPLE_COHORT_120: string[] = [
+// 內部組合陣列
+const RAW_COHORT = [
   ...COHORT_GROUP_1,
   ...COHORT_GROUP_2,
   ...COHORT_GROUP_3,
@@ -49,17 +49,52 @@ export const HK_SAMPLE_COHORT_120: string[] = [
   ...COHORT_GROUP_6
 ];
 
-// 修正 P2：動態計算 sampleSize，徹底消除未來擴充語料庫時的資料不同步地雷
-export const AUDIT_METADATA = {
+// 效能與資料治理：使用 Set 自動去重，確保樣本絕對唯一；匯出為 readonly 防止外部竄改
+export const HK_SAMPLE_COHORT_120: readonly string[] = Array.from(new Set(RAW_COHORT));
+
+export interface AuditMetadata {
+  readonly cohortName: string;
+  readonly sampleSize: number;
+  readonly targetCurriculum: string;
+  readonly verifiedAtCommit: string;
+}
+
+// 動態計算 sampleSize，徹底消除未來擴充語料庫時的資料不同步地雷
+export const AUDIT_METADATA: AuditMetadata = {
   cohortName: 'Phase 0 Delphi Review Cohort',
   sampleSize: HK_SAMPLE_COHORT_120.length,
   targetCurriculum: 'HK Primary Curriculum Baseline (Subset)',
   verifiedAtCommit: process.env.GITHUB_SHA || 'local'
 };
 
-// 健壯性檢查：確保語料庫確實維持 120 字規模
+// ==========================================
+// 健壯性檢查 (Sanity Checks)
+// ==========================================
+const CLI_COLORS = {
+  yellow: '\x1b[33m',
+  red: '\x1b[31m',
+  reset: '\x1b[0m'
+};
+
+// 1. 重複字元校驗 (發現「角」字在 Group 3 和 Group 4 重複時自動攔截)
+if (RAW_COHORT.length !== HK_SAMPLE_COHORT_120.length) {
+  const duplicates = RAW_COHORT.filter((item, index) => RAW_COHORT.indexOf(item) !== index);
+  console.warn(
+    `${CLI_COLORS.yellow}⚠️ 語料庫重複警告：發現 ${RAW_COHORT.length - HK_SAMPLE_COHORT_120.length} 個重複字 [${Array.from(new Set(duplicates)).join(', ')}]，已自動去重。${CLI_COLORS.reset}`
+  );
+}
+
+// 2. 規模偏移校驗
 if (HK_SAMPLE_COHORT_120.length !== 120) {
   console.warn(
-    `⚠️ 語料庫規模偏移警告：預期 120 字，目前載入 ${HK_SAMPLE_COHORT_120.length} 字。`
+    `${CLI_COLORS.yellow}⚠️ 語料庫規模偏移警告：預期 120 字，目前實際載入 ${HK_SAMPLE_COHORT_120.length} 獨立字。${CLI_COLORS.reset}`
+  );
+}
+
+// 3. Surrogate Pairs 與字元長度防護
+const invalidChars = HK_SAMPLE_COHORT_120.filter(char => Array.from(char).length !== 1);
+if (invalidChars.length > 0) {
+  console.error(
+    `${CLI_COLORS.red}❌ 語料庫髒資料異常：發現非單一字元的項目 [${invalidChars.join(', ')}]，請修正原始陣列。${CLI_COLORS.reset}`
   );
 }
