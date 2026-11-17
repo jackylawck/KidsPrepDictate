@@ -12,6 +12,33 @@ interface GlyphMask {
 
 export class DictationMatcher {
   private static glyphMaskCache = new Map<string, GlyphMask | null>();
+  
+  // 效能優化：共用 Canvas 實例，避免頻繁 createElement 導致 GC 記憶體抖動卡頓
+  private static sharedCanvas: HTMLCanvasElement | null = null;
+  private static sharedCtx: CanvasRenderingContext2D | null = null;
+  private static normCanvas: HTMLCanvasElement | null = null;
+  private static normCtx: CanvasRenderingContext2D | null = null;
+
+  private static getSharedCanvases() {
+    if (!this.sharedCanvas && typeof document !== 'undefined') {
+      this.sharedCanvas = document.createElement('canvas');
+      this.sharedCanvas.width = GRID_SIZE;
+      this.sharedCanvas.height = GRID_SIZE;
+      // willReadFrequently: true 避免頻繁 getImageData 造成的 GPU 阻塞
+      this.sharedCtx = this.sharedCanvas.getContext('2d', { willReadFrequently: true });
+
+      this.normCanvas = document.createElement('canvas');
+      this.normCanvas.width = GRID_SIZE;
+      this.normCanvas.height = GRID_SIZE;
+      this.normCtx = this.normCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    return { 
+      canvas: this.sharedCanvas, 
+      ctx: this.sharedCtx, 
+      normCanvas: this.normCanvas, 
+      normCtx: this.normCtx 
+    };
+  }
 
   public static screenToHanziCoords(
     screenX: number,
@@ -37,15 +64,11 @@ export class DictationMatcher {
     if (this.glyphMaskCache.has(char)) {
       return this.glyphMaskCache.get(char)!;
     }
-    if (typeof document === 'undefined') return null;
+    
+    const { canvas, ctx, normCanvas, normCtx } = this.getSharedCanvases();
+    if (!ctx || !normCtx || !canvas || !normCanvas) return null;
 
     try {
-      const canvas = document.createElement('canvas');
-      canvas.width = GRID_SIZE;
-      canvas.height = GRID_SIZE;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return null;
-
       ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
       ctx.fillStyle = '#FFFFFF';
@@ -74,10 +97,6 @@ export class DictationMatcher {
         return null;
       }
 
-      const normCanvas = document.createElement('canvas');
-      normCanvas.width = GRID_SIZE;
-      normCanvas.height = GRID_SIZE;
-      const nCtx = normCanvas.getContext('2d')!;
       const srcW = Math.max(1, maxX - minX + 1);
       const srcH = Math.max(1, maxY - minY + 1);
       const targetSpan = GRID_SIZE - 12;
@@ -87,8 +106,9 @@ export class DictationMatcher {
       const dstX = (GRID_SIZE - dstW) / 2;
       const dstY = (GRID_SIZE - dstH) / 2;
 
-      nCtx.drawImage(canvas, minX, minY, srcW, srcH, dstX, dstY, dstW, dstH);
-      const normData = nCtx.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
+      normCtx.clearRect(0, 0, GRID_SIZE, GRID_SIZE);
+      normCtx.drawImage(canvas, minX, minY, srcW, srcH, dstX, dstY, dstW, dstH);
+      const normData = normCtx.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
 
       const raw = new Uint8Array(GRID_SIZE * GRID_SIZE);
       const dilated = new Uint8Array(GRID_SIZE * GRID_SIZE);
@@ -124,7 +144,8 @@ export class DictationMatcher {
   }
 
   private static rasterizeUserStrokes(userStrokes: Point[][]): { mask: Uint8Array; inkPixels: number } | null {
-    if (typeof document === 'undefined') return null;
+    const { ctx } = this.getSharedCanvases();
+    if (!ctx) return null;
 
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const stroke of userStrokes) {
@@ -145,12 +166,7 @@ export class DictationMatcher {
     const offsetX = (GRID_SIZE - srcW * scale) / 2;
     const offsetY = (GRID_SIZE - srcH * scale) / 2;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = GRID_SIZE;
-    canvas.height = GRID_SIZE;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-
+    ctx.clearRect(0, 0, GRID_SIZE, GRID_SIZE);
     ctx.strokeStyle = '#FFFFFF';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -177,7 +193,8 @@ export class DictationMatcher {
     let inkPixels = 0;
 
     for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
-      if (data[i * 4] > 80) {
+      // 由於背景已用 clearRect 清空 (透明)，我們檢查 alpha 遮罩即可，避免不必要的 RGB 判斷
+      if (data[i * 4 + 3] > 80) {
         mask[i] = 1;
         inkPixels++;
       }
