@@ -445,10 +445,9 @@ function initApp() {
     if (!isFreeWriteMode && currentIndex >= tokens.length) {
       localStorage.removeItem(STORAGE_KEY);
       
-      // 🚀 優化 1：徹底收尾，防止過關後繼續畫畫
+      // 🚀 徹底收尾：清空墨水並鎖死畫布
       traceCanvas.clearInk();
-      // 如果 traceCanvas 在未來實作了鎖定，可以解除下面這行註解：
-      // if (typeof traceCanvas.lock === 'function') traceCanvas.lock();
+      (traceCanvas as any).lock?.();
       
       btnHint.style.display = 'none';
       btnSpeakChar.style.display = 'none';
@@ -461,7 +460,6 @@ function initApp() {
       return;
     }
     
-    // 確保未過關時操作按鈕有正常顯示
     if (!isFreeWriteMode) {
       btnHint.style.display = 'inline-block';
       btnSpeakChar.style.display = 'inline-block';
@@ -611,11 +609,10 @@ function initApp() {
   traceCanvas.setCallbacks(handleStrictResult, handleFreeRecognize);
 
   const startFreeMode = () => {
-    // 🚀 優化 3：重新啟動時解鎖按鈕
+    // 🚀 解鎖畫布與按鈕，準備新一輪
     btnConfirmWord.style.display = 'inline-block';
     btnClear.style.display = 'inline-block';
-    // 如果 traceCanvas 有實作 unlock，可以解除下面這行註解：
-    // if (typeof traceCanvas.unlock === 'function') traceCanvas.unlock();
+    (traceCanvas as any).unlock?.();
 
     const zhRadio = document.querySelector<HTMLInputElement>('input[name="subject"][value="zh"]');
     if (zhRadio) zhRadio.checked = true;
@@ -646,11 +643,10 @@ function initApp() {
       return;
     }
 
-    // 🚀 優化 3：重新啟動時解鎖按鈕
+    // 🚀 解鎖畫布與按鈕，準備新一輪
     btnConfirmWord.style.display = 'inline-block';
     btnClear.style.display = 'inline-block';
-    // 如果 traceCanvas 有實作 unlock，可以解除下面這行註解：
-    // if (typeof traceCanvas.unlock === 'function') traceCanvas.unlock();
+    (traceCanvas as any).unlock?.();
 
     const selectedRadio = document.querySelector<HTMLInputElement>('input[name="subject"]:checked');
     const chosenSubject = (selectedRadio?.value as SubjectMode) || currentSubject;
