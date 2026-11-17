@@ -24,19 +24,37 @@ const STORAGE_KEY = 'kidsprep_session_v2';
 type SubjectMode = 'zh' | 'en';
 type EnHintLevel = 'first' | 'firstTwo' | 'full';
 
+/**
+ * 空間優化版 Levenshtein 編輯距離（O(N) 滾動陣列，避免二維陣列 GC 開銷）
+ */
 function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
   const m = a.length;
   const n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  if (m === 0) return n;
+  if (n === 0) return m;
+
+  let prev = new Uint16Array(n + 1);
+  let curr = new Uint16Array(n + 1);
+
+  for (let j = 0; j <= n; j++) prev[j] = j;
+
   for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    const chA = a.charCodeAt(i - 1);
     for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+      const cost = chA === b.charCodeAt(j - 1) ? 0 : 1;
+      const del = prev[j] + 1;
+      const ins = curr[j - 1] + 1;
+      const sub = prev[j - 1] + cost;
+      curr[j] = del < ins ? (del < sub ? del : sub) : (ins < sub ? ins : sub);
     }
+    const tmp = prev;
+    prev = curr;
+    curr = tmp;
   }
-  return dp[m][n];
+
+  return prev[n];
 }
 
 function initApp() {
@@ -57,8 +75,9 @@ function initApp() {
       audioUnlocked = true;
     } catch { /* ignore */ }
   };
+
   ['pointerdown', 'touchstart', 'click'].forEach((evt) => {
-    document.addEventListener(evt, unlockAudioEngine, { once: true });
+    document.addEventListener(evt, unlockAudioEngine, { once: true, passive: true });
   });
 
   const traceCanvas = new TraceCanvas('trace-canvas', 'ink-canvas', 'stroke-badge');
@@ -106,8 +125,14 @@ function initApp() {
   const baseUrl = import.meta.env.BASE_URL || '/';
 
   const updateProgressBadge = () => {
-    const total = tokens.filter((item) => !item.isPunctuation).length;
-    const done = tokens.filter((item) => !item.isPunctuation && item.revealed).length;
+    let total = 0;
+    let done = 0;
+    for (let i = 0; i < tokens.length; i++) {
+      if (!tokens[i].isPunctuation) {
+        total++;
+        if (tokens[i].revealed) done++;
+      }
+    }
 
     if (currentSubject === 'en') {
       progressPill.textContent = t('progressEnStrict', { done, total });
@@ -128,7 +153,7 @@ function initApp() {
   const renderEnDisplay = (typed: string) => {
     const targetWord = tokens[currentIndex]?.char || '';
     const level = (enHintLevelSelect?.value as EnHintLevel) || 'first';
-    enDisplay.innerHTML = '';
+    const fragment = document.createDocumentFragment();
 
     const maxLen = Math.max(typed.length, targetWord.length, 3);
     for (let i = 0; i < maxLen; i++) {
@@ -155,17 +180,16 @@ function initApp() {
         span.textContent = '_';
       }
 
-      enDisplay.appendChild(span);
+      fragment.appendChild(span);
     }
+
+    enDisplay.innerHTML = '';
+    enDisplay.appendChild(fragment);
   };
 
   const englishKeyboard = new EnglishKeyboard('en-keyboard', 'sys-en-input', {
-    onChange: (val) => {
-      renderEnDisplay(val);
-    },
-    onSubmit: (val) => {
-      verifyEnInput(val);
-    }
+    onChange: (val) => renderEnDisplay(val),
+    onSubmit: (val) => verifyEnInput(val)
   });
 
   const syncSubjectUI = (subject: SubjectMode) => {
@@ -203,6 +227,12 @@ function initApp() {
     englishKeyboard.setUseSystemKeyboard(useSysKbCb.checked);
   });
 
+  enHintLevelSelect?.addEventListener('change', () => {
+    if (currentSubject === 'en' && isEnHintActive) {
+      renderEnDisplay(englishKeyboard.getValue());
+    }
+  });
+
   window.addEventListener('langchange', () => {
     updateProgressBadge();
     traceCanvas.updateBadge();
@@ -223,13 +253,14 @@ function initApp() {
   };
 
   const preloadCandidatePool = async () => {
-    const uniqueChars = Array.from(new Set(Array.from(CORE_COMMON_CHARS)));
+    const uniqueChars = [...new Set(CORE_COMMON_CHARS)];
     const batchSize = 24;
 
     for (let i = 0; i < uniqueChars.length; i += batchSize) {
       const batch = uniqueChars.slice(i, i + batchSize);
       await Promise.allSettled(
         batch.map(async (ch) => {
+          if (charCache.has(ch)) return;
           const code = ch.codePointAt(0);
           if (!code) return;
           const unicode = code.toString(16).toUpperCase().padStart(4, '0');
@@ -237,7 +268,7 @@ function initApp() {
             const res = await fetchWithTimeout(`${baseUrl}data/${unicode}.json`, 3000);
             if (res.ok) {
               const data: StrokeData = await res.json();
-              if (data.medians && data.medians.length > 0) {
+              if (data.medians && data.medians.length > 0 && !charCache.has(ch)) {
                 charCache.set(ch, data);
                 candidatePool.push(data);
               }
@@ -262,6 +293,7 @@ function initApp() {
 
   const speakText = (text: string, rate: number = 0.85) => {
     if (!text || !synth) return;
+    if (synth.paused) synth.resume();
     if (synth.speaking) synth.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
@@ -330,7 +362,7 @@ function initApp() {
   const renderSlots = () => {
     updateProgressBadge();
     let activeEl: HTMLElement | null = null;
-    slotsContainer.innerHTML = '';
+    const fragment = document.createDocumentFragment();
 
     tokens.forEach((token, idx) => {
       const div = document.createElement('div');
@@ -349,11 +381,17 @@ function initApp() {
         activeEl = div;
       }
 
-      slotsContainer.appendChild(div);
+      fragment.appendChild(div);
     });
 
+    slotsContainer.innerHTML = '';
+    slotsContainer.appendChild(fragment);
+
     if (activeEl) {
-      (activeEl as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      const targetEl = activeEl as HTMLElement;
+      requestAnimationFrame(() => {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
     }
   };
 
@@ -362,8 +400,12 @@ function initApp() {
       candidateBar.style.display = 'none';
       return;
     }
-    candidateBar.style.display = 'flex';
-    candidateBar.innerHTML = `<span style="font-size:0.8rem;color:#666;align-self:center;">${t('candidateLabel')}</span>`;
+
+    const fragment = document.createDocumentFragment();
+    const labelSpan = document.createElement('span');
+    labelSpan.style.cssText = 'font-size:0.8rem;color:#666;align-self:center;';
+    labelSpan.textContent = t('candidateLabel');
+    fragment.appendChild(labelSpan);
 
     candidates.forEach((ch) => {
       const btn = document.createElement('button');
@@ -379,8 +421,12 @@ function initApp() {
           candidateBar.style.display = 'none';
         }
       });
-      candidateBar.appendChild(btn);
+      fragment.appendChild(btn);
     });
+
+    candidateBar.innerHTML = '';
+    candidateBar.appendChild(fragment);
+    candidateBar.style.display = 'flex';
   };
 
   const loadCurrentTarget = async (autoSpeakEn: boolean = true) => {
@@ -405,7 +451,6 @@ function initApp() {
       return;
     }
 
-    // P1 修復：英文模式切換至新單字時自動朗讀，形成「聽聲串字」完整閉環
     if (currentSubject === 'en') {
       if (enHintTimer) clearTimeout(enHintTimer);
       isEnHintActive = false;
@@ -456,7 +501,6 @@ function initApp() {
     const typedClean = rawTyped.trim().replace(/\s+/g, ' ').toLowerCase();
     const targetLower = targetWord.toLowerCase();
 
-    // P2-3：空輸入按確認時給予明確提示
     if (!typedClean) {
       showBanner(t('enVerifyWrong'), true);
       return;
@@ -476,7 +520,6 @@ function initApp() {
           : t('enVerifyFuzzySuccess', { word: targetWord })
       );
       currentIndex++;
-      // P2-2：答對後直接交由 loadCurrentTarget(true) 朗讀下一詞，避免連讀兩詞造成混淆
       loadCurrentTarget(true);
       return;
     }
@@ -487,7 +530,6 @@ function initApp() {
 
   const handleStrictResult = (result: VerifyResult) => {
     if (currentIndex >= tokens.length) return;
-    // P0 修復：對齊 VerifyResult 的 3 欄位定義（status / score / message），確保 TS 編譯通過
     const localizedMsg = result.message;
 
     if (result.status === 'SUCCESS') {
@@ -495,7 +537,8 @@ function initApp() {
       if (navigator.vibrate) navigator.vibrate(25);
       tokens[currentIndex].revealed = true;
 
-      if (result.score === 0.8 && result.message.includes('寫好')) {
+      // 同時相容語意化 isFallback 欄位與舊版 0.8 缺字約定，不受中英文介面切換影響
+      if (result.isFallback || result.score === 0.8) {
         tokens[currentIndex].skipped = true;
       }
 
@@ -693,12 +736,29 @@ function initApp() {
     });
   }
 
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      saveSessionProgress();
+    }
+  });
+
+  window.addEventListener('pagehide', () => {
+    saveSessionProgress();
+    traceCanvas.destroy();
+  });
+
   const checkSavedSession = () => {
     try {
       const rawSaved = localStorage.getItem(STORAGE_KEY);
       if (rawSaved) {
         const parsed = JSON.parse(rawSaved);
-        if (parsed.passage && Array.isArray(parsed.tokens) && parsed.currentIndex < parsed.tokens.length) {
+        if (
+          parsed.passage &&
+          Array.isArray(parsed.tokens) &&
+          typeof parsed.currentIndex === 'number' &&
+          parsed.currentIndex >= 0 &&
+          parsed.currentIndex < parsed.tokens.length
+        ) {
           const savedSubject: SubjectMode = parsed.subject === 'en' ? 'en' : 'zh';
           const radio = document.querySelector<HTMLInputElement>(`input[name="subject"][value="${savedSubject}"]`);
           if (radio) radio.checked = true;
