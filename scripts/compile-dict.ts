@@ -1,5 +1,6 @@
 // scripts/compile-dict.ts
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
 
@@ -7,9 +8,15 @@ const RAW_DIR = path.resolve(process.cwd(), 'data', 'raw');
 const COMPILED_DIR = path.resolve(process.cwd(), 'data', 'compiled');
 const DICT_OUTPUT = path.join(COMPILED_DIR, 'dictionary.json');
 
-if (!fs.existsSync(COMPILED_DIR)) {
-  fs.mkdirSync(COMPILED_DIR, { recursive: true });
-}
+// CLI 色碼配置
+const CLI_COLORS = {
+  reset: '\x1b[0m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  red: '\x1b[31m',
+  cyan: '\x1b[36m',
+  gray: '\x1b[90m'
+};
 
 interface JyutpingEntry {
   jyutping: string;
@@ -47,25 +54,35 @@ function findExistingFile(dir: string, candidates: string[]): string | null {
 }
 
 async function compileDictionary() {
+  if (!fs.existsSync(COMPILED_DIR)) {
+    await fsp.mkdir(COMPILED_DIR, { recursive: true });
+  }
+
   const dict: CharDictionary = {};
-  console.log('📦 開始編譯字典索引...');
+  console.log(`${CLI_COLORS.cyan}📦 開始編譯字典索引...${CLI_COLORS.reset}`);
 
   // 1. 解析 Unihan 提取部首
   const radicalCandidates = ['Unihan_RadicalStroke.txt', 'Unihan_Radicals.txt'];
   const radicalPath = findExistingFile(RAW_DIR, radicalCandidates);
   
   if (radicalPath) {
-    console.log(`➡️ 解析 ${path.basename(radicalPath)}...`);
+    console.log(`${CLI_COLORS.gray}➡️ 解析 ${path.basename(radicalPath)}...${CLI_COLORS.reset}`);
     const rl = readline.createInterface({ input: fs.createReadStream(radicalPath), crlfDelay: Infinity });
     for await (const line of rl) {
       if (line.startsWith('#') || !line.trim()) continue;
-      const [codepoint, field, value] = line.split('\t');
       
-      // 修正 P1: 防禦 value undefined 導致的 TypeError
+      const tabIdx1 = line.indexOf('\t');
+      const tabIdx2 = line.indexOf('\t', tabIdx1 + 1);
+      if (tabIdx1 === -1 || tabIdx2 === -1) continue;
+
+      const codepoint = line.substring(0, tabIdx1);
+      const field = line.substring(tabIdx1 + 1, tabIdx2);
+      const value = line.substring(tabIdx2 + 1);
+      
       if (field !== 'kRSUnicode' || !value) continue;
       
       const unicode = codepoint.replace('U+', '').padStart(4, '0');
-      const radicalNum = parseInt(value.split(' ')[0].split('.')[0], 10);
+      const radicalNum = parseInt(value.split('.')[0], 10);
       
       if (radicalNum >= 1 && radicalNum <= 214) {
         if (!dict[unicode]) dict[unicode] = { radical: '—', jyutping: [], pinyin: [] };
@@ -73,49 +90,63 @@ async function compileDictionary() {
       }
     }
   } else {
-    console.warn(`⚠️ 找不到部首檔案，嘗試過：${radicalCandidates.join(', ')}`);
+    console.warn(`${CLI_COLORS.yellow}⚠️ 找不到部首檔案，嘗試過：${radicalCandidates.join(', ')}${CLI_COLORS.reset}`);
   }
 
   // 2. 解析 Unihan 提取普拼
   const readingPath = path.join(RAW_DIR, 'Unihan_Readings.txt');
   if (fs.existsSync(readingPath)) {
-    console.log('➡️ 解析 Unihan_Readings.txt (普拼)...');
+    console.log(`${CLI_COLORS.gray}➡️ 解析 Unihan_Readings.txt (普拼)...${CLI_COLORS.reset}`);
     const rl = readline.createInterface({ input: fs.createReadStream(readingPath), crlfDelay: Infinity });
     for await (const line of rl) {
       if (line.startsWith('#') || !line.trim()) continue;
-      const [codepoint, field, value] = line.split('\t');
       
-      // 修正 P1: 防禦 value undefined
-      if (field === 'kMandarin' && value) {
+      const tabIdx1 = line.indexOf('\t');
+      const tabIdx2 = line.indexOf('\t', tabIdx1 + 1);
+      if (tabIdx1 === -1 || tabIdx2 === -1) continue;
+
+      const field = line.substring(tabIdx1 + 1, tabIdx2);
+      if (field !== 'kMandarin') continue;
+
+      const value = line.substring(tabIdx2 + 1);
+      if (value) {
+        const codepoint = line.substring(0, tabIdx1);
         const unicode = codepoint.replace('U+', '').padStart(4, '0');
         if (!dict[unicode]) dict[unicode] = { radical: '—', jyutping: [], pinyin: [] };
         
+        // 效能優化：使用 Set 避免 O(n) 的 includes 檢查
+        const existingPinyin = new Set(dict[unicode].pinyin);
         const pinyins = value.split(' ').filter(Boolean);
-        pinyins.forEach(p => {
-          if (!dict[unicode].pinyin.includes(p)) dict[unicode].pinyin.push(p);
-        });
+        for (const p of pinyins) {
+          if (!existingPinyin.has(p)) {
+            dict[unicode].pinyin.push(p);
+            existingPinyin.add(p);
+          }
+        }
       }
     }
   } else {
-    console.warn('⚠️ 找不到 Unihan_Readings.txt，將跳過普拼解析。');
+    console.warn(`${CLI_COLORS.yellow}⚠️ 找不到 Unihan_Readings.txt，將跳過普拼解析。${CLI_COLORS.reset}`);
   }
 
   // 3. 解析 Rime 粵拼 (權重排序演算法)
   const jyutpingPath = path.join(RAW_DIR, 'jyutping.dict.yaml');
   if (fs.existsSync(jyutpingPath)) {
-    console.log('➡️ 解析 jyutping.dict.yaml...');
+    console.log(`${CLI_COLORS.gray}➡️ 解析 jyutping.dict.yaml...${CLI_COLORS.reset}`);
     const tempDict: Record<string, JyutpingEntry[]> = {};
     const rl = readline.createInterface({ input: fs.createReadStream(jyutpingPath), crlfDelay: Infinity });
     
     for await (const line of rl) {
+      if (line.startsWith('#') || line.startsWith('---') || !line.trim()) continue;
+      
       const parts = line.split('\t');
-      if (parts.length < 2 || line.startsWith('#') || line.startsWith('---')) continue;
+      if (parts.length < 2) continue;
       
       const word = parts[0];
       const jyutping = parts[1];
       const weightStr = parts[2] || '0';
       
-      // 修正 P2: 處理 Surrogate Pairs 代理對 (正確判斷 Unicode 擴充字元長度)
+      // 處理 Surrogate Pairs 代理對 (正確判斷 Unicode 擴充字元長度)
       if (Array.from(word).length !== 1) continue; 
       
       const codePoint = word.codePointAt(0);
@@ -131,24 +162,31 @@ async function compileDictionary() {
     for (const [unicode, entries] of Object.entries(tempDict)) {
       if (!dict[unicode]) dict[unicode] = { radical: '—', jyutping: [], pinyin: [] };
       
-      const sorted = entries.sort((a, b) => b.weight - a.weight);
-      const unique: string[] = [];
-      for (const { jyutping } of sorted) {
-        if (!unique.includes(jyutping)) unique.push(jyutping);
+      // 依權重降冪排序
+      entries.sort((a, b) => b.weight - a.weight);
+      
+      // 效能優化：使用 Set 進行 O(1) 唯一值過濾
+      const uniqueSet = new Set<string>();
+      const uniqueArray: string[] = [];
+      for (const { jyutping } of entries) {
+        if (!uniqueSet.has(jyutping)) {
+          uniqueSet.add(jyutping);
+          uniqueArray.push(jyutping);
+        }
       }
-      dict[unicode].jyutping = unique;
+      dict[unicode].jyutping = uniqueArray;
     }
   } else {
-    console.warn('⚠️ 找不到 jyutping.dict.yaml，將跳過粵拼解析。');
+    console.warn(`${CLI_COLORS.yellow}⚠️ 找不到 jyutping.dict.yaml，將跳過粵拼解析。${CLI_COLORS.reset}`);
   }
 
-  // 修正 P2: JSON 格式化輸出 (Pretty-print) 以利人類除錯與 git diff
-  fs.writeFileSync(DICT_OUTPUT, JSON.stringify(dict, null, 2), 'utf-8');
+  // 非同步寫入，避免阻塞
+  await fsp.writeFile(DICT_OUTPUT, JSON.stringify(dict, null, 2), 'utf-8');
   
-  // 修正 P2: 資料治理覆蓋率統計
+  // 資料治理覆蓋率統計
   const stats = { total: 0, hasRadical: 0, hasJyutping: 0, hasPinyin: 0, complete: 0 };
   
-  for (const [, entry] of Object.entries(dict)) {
+  for (const entry of Object.values(dict)) {
     stats.total++;
     const hasR = entry.radical !== '—';
     const hasJ = entry.jyutping.length > 0;
@@ -160,19 +198,21 @@ async function compileDictionary() {
     if (hasR && hasJ && hasP) stats.complete++;
   }
 
-  console.log('\n======================================================');
-  console.log(`📊 字典編譯與資料覆蓋率統計`);
-  console.log('======================================================');
+  const getPercentage = (count: number) => stats.total === 0 ? '0.0' : ((count / stats.total) * 100).toFixed(1);
+
+  console.log(`\n${CLI_COLORS.cyan}======================================================${CLI_COLORS.reset}`);
+  console.log(`${CLI_COLORS.green}📊 字典編譯與資料覆蓋率統計${CLI_COLORS.reset}`);
+  console.log(`${CLI_COLORS.cyan}======================================================${CLI_COLORS.reset}`);
   console.log(` 總收錄字數 : ${stats.total}`);
-  console.log(` 有部首     : ${stats.hasRadical} (${((stats.hasRadical / stats.total) * 100).toFixed(1)}%)`);
-  console.log(` 有粵拼     : ${stats.hasJyutping} (${((stats.hasJyutping / stats.total) * 100).toFixed(1)}%)`);
-  console.log(` 有普拼     : ${stats.hasPinyin} (${((stats.hasPinyin / stats.total) * 100).toFixed(1)}%)`);
-  console.log(` 三者齊全   : ${stats.complete} (${((stats.complete / stats.total) * 100).toFixed(1)}%)`);
-  console.log('======================================================');
-  console.log(`✅ 字典索引已寫入至: ${DICT_OUTPUT}\n`);
+  console.log(` 有部首     : ${CLI_COLORS.green}${stats.hasRadical}${CLI_COLORS.reset} (${getPercentage(stats.hasRadical)}%)`);
+  console.log(` 有粵拼     : ${CLI_COLORS.green}${stats.hasJyutping}${CLI_COLORS.reset} (${getPercentage(stats.hasJyutping)}%)`);
+  console.log(` 有普拼     : ${CLI_COLORS.green}${stats.hasPinyin}${CLI_COLORS.reset} (${getPercentage(stats.hasPinyin)}%)`);
+  console.log(` 三者齊全   : ${CLI_COLORS.green}${stats.complete}${CLI_COLORS.reset} (${getPercentage(stats.complete)}%)`);
+  console.log(`${CLI_COLORS.cyan}======================================================${CLI_COLORS.reset}`);
+  console.log(`✅ 字典索引已安全寫入至: ${CLI_COLORS.cyan}${DICT_OUTPUT}${CLI_COLORS.reset}\n`);
 }
 
 compileDictionary().catch(err => {
-  console.error('字典編譯失敗:', err);
+  console.error(`${CLI_COLORS.red}❌ 字典編譯致命錯誤:${CLI_COLORS.reset}`, err);
   process.exit(1);
 });
