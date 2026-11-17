@@ -1,5 +1,6 @@
 /* src/style.css */
 :root {
+  /* 基礎亮色主題變數 */
   --primary-color: #b71c1c;
   --primary-dark: #7f0000;
   --secondary-color: #00796b;
@@ -11,7 +12,23 @@
   --border-color: #e0e0e0;
   --radius-md: 8px;
   --radius-lg: 12px;
-  color-scheme: light;
+  color-scheme: light dark;
+}
+
+/* 企業級暗色模式 (Dark Mode) 自動適配 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-color: #121212;
+    --surface-color: #1e1e1e;
+    --text-main: #e0e0e0;
+    --text-muted: #a0a0a0;
+    --border-color: #333333;
+    /* 在深色底微調主色亮度，避免過於刺眼 */
+    --primary-color: #ef5350; 
+    --primary-dark: #b71c1c;
+    --secondary-color: #26a69a;
+    --secondary-dark: #00796b;
+  }
 }
 
 /* === 1. 核心重置與全域防護 === */
@@ -20,25 +37,28 @@
   margin: 0;
   padding: 0;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* 嚴格的防反白與防原生選單 */
+html, body {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
-}
-
-/* 保留輸入框正常文字選取與 iOS 原生貼上選單 */
-textarea, input {
-  -webkit-user-select: text;
-  user-select: text;
-  -webkit-touch-callout: auto;
-}
-
-html, body {
   height: 100dvh;
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang HK", "MingLiU", sans-serif;
   background-color: var(--bg-color);
   color: var(--text-main);
   overscroll-behavior: none;
+}
+
+/* 僅保留輸入框的文字選取權限 */
+textarea, input {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: auto;
+  color: var(--text-main);
+  background-color: var(--surface-color);
 }
 
 /* === 2. 單屏佈局與 Safe Area 適配 === */
@@ -81,9 +101,9 @@ h1 {
 
 .progress-pill {
   padding: 4px 10px;
-  background: #ffebee;
+  background: var(--surface-color);
   color: var(--primary-color);
-  border: 1px solid #ffcdd2;
+  border: 1px solid var(--primary-color);
   border-radius: 16px;
   font-size: 0.78rem;
   font-weight: bold;
@@ -92,7 +112,7 @@ h1 {
 
 .btn-lang {
   padding: 4px 10px;
-  background-color: #ffffff;
+  background-color: var(--surface-color);
   color: var(--primary-color);
   border: 1.5px solid var(--primary-color);
   border-radius: 16px;
@@ -112,7 +132,7 @@ h1 {
 .parent-panel {
   flex-shrink: 0;
   background: var(--surface-color);
-  border: 1px solid #ffcdd2;
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   z-index: 20;
 }
@@ -134,7 +154,7 @@ h1 {
   gap: 12px;
   justify-content: center;
   padding: 10px 12px;
-  border-top: 1px dashed #ffcdd2;
+  border-top: 1px dashed var(--border-color);
 }
 
 .subject-toggle label {
@@ -144,19 +164,18 @@ h1 {
   justify-content: center;
   gap: 6px;
   padding: 8px 10px;
-  border: 1.5px solid #d7ccc8;
+  border: 1.5px solid var(--border-color);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface-color);
   font-weight: 600;
   cursor: pointer;
-  color: #555;
+  color: var(--text-muted);
   transition: all 0.2s;
 }
 
 .subject-toggle label:has(input:checked) {
-  border-color: #b71c1c;
-  background: #ffebee;
-  color: #b71c1c;
+  border-color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 .subject-toggle input[type="radio"] {
@@ -169,9 +188,9 @@ h1 {
   gap: 8px;
   margin-top: 8px;
   padding: 10px;
-  background: #f8f9fa;
+  background: var(--bg-color);
   border-radius: 8px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border-color);
 }
 
 .sys-kb-label {
@@ -179,7 +198,7 @@ h1 {
   align-items: center;
   gap: 8px;
   font-size: 0.88rem;
-  color: #444;
+  color: var(--text-main);
   cursor: pointer;
 }
 
@@ -188,15 +207,16 @@ h1 {
   align-items: center;
   justify-content: space-between;
   font-size: 0.88rem;
-  color: #444;
+  color: var(--text-main);
   padding-top: 4px;
 }
 
 .hint-level-row select {
   padding: 4px 8px;
   border-radius: 6px;
-  border: 1px solid #ccc;
-  background: #fff;
+  border: 1px solid var(--border-color);
+  background: var(--surface-color);
+  color: var(--text-main);
   font-size: 0.88rem;
 }
 
@@ -220,7 +240,7 @@ h1 {
   font-size: 0.95rem;
   font-weight: bold;
   background-color: var(--primary-color);
-  color: white;
+  color: #ffffff;
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
@@ -230,19 +250,19 @@ h1 {
 
 .btn-secondary {
   padding: 8px 12px;
-  background-color: #f5f5f5;
-  color: #555;
-  border: 1px solid #d0d0d0;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   font-size: 0.88rem;
   font-weight: bold;
   cursor: pointer;
 }
-.btn-secondary:active { background-color: #e0e0e0; }
+.btn-secondary:active { opacity: 0.8; }
 
-.btn-success { background-color: var(--secondary-color); color: white; border: none; }
-.btn-warning { background-color: #ffb300; color: #333; border: none; }
-.btn-danger { background-color: #ffebee; color: var(--primary-color); border: 1px solid #ffcdd2; }
+.btn-success { background-color: var(--secondary-color); color: #ffffff; border: none; }
+.btn-warning { background-color: #ffb300; color: #111111; border: none; }
+.btn-danger { background-color: transparent; color: var(--primary-color); border: 1.5px solid var(--primary-color); }
 
 /* === 4. 工具列與進度展示區 === */
 .toolbar {
@@ -255,16 +275,16 @@ h1 {
 
 .btn-icon {
   padding: 6px 14px;
-  background-color: #e0f2f1;
-  color: var(--secondary-dark);
-  border: 1px solid var(--secondary-color);
+  background-color: transparent;
+  color: var(--secondary-color);
+  border: 1.5px solid var(--secondary-color);
   border-radius: 20px;
   font-size: 0.85rem;
   font-weight: bold;
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-icon:active { background-color: #b2dfdb; }
+.btn-icon:active { background-color: var(--secondary-color); color: #ffffff; }
 
 .sentence-slots {
   flex: 1;
@@ -282,7 +302,7 @@ h1 {
 .char-slot {
   aspect-ratio: 1 / 1;
   width: 44px;
-  border: 1.5px dashed #bdbdbd;
+  border: 1.5px dashed var(--border-color);
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -290,8 +310,9 @@ h1 {
   font-size: 1.4rem;
   font-weight: bold;
   color: var(--text-main);
-  background: #fafafa;
-  will-change: transform;
+  background: var(--bg-color);
+  /* 效能優化：預先宣告 GPU 動畫屬性 */
+  will-change: transform, box-shadow;
 }
 
 /* P2-1：防止英文長詞被壓扁 */
@@ -306,7 +327,7 @@ h1 {
 
 .char-slot.active {
   border: 2px solid var(--primary-color);
-  background: #ffebee;
+  background: transparent;
   transform: scale(1.05);
   box-shadow: 0 0 6px rgba(183, 28, 28, 0.25);
   animation: breathe 1.5s infinite ease-in-out alternate;
@@ -314,8 +335,8 @@ h1 {
 
 .char-slot.revealed {
   border: 1.5px solid var(--secondary-color);
-  background: #e0f2f1;
-  color: var(--secondary-dark);
+  color: var(--secondary-color);
+  background: transparent;
   animation: popReveal 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
@@ -337,15 +358,16 @@ h1 {
   width: 90%;
   max-width: 320px;
   padding: 12px;
-  background-color: rgba(50, 50, 50, 0.95);
+  background-color: rgba(40, 40, 40, 0.95);
   color: #ffffff;
   font-size: 1rem;
   font-weight: bold;
   border-radius: 12px;
   text-align: center;
   z-index: 50;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .feedback-banner.warning-error {
@@ -382,7 +404,7 @@ h1 {
   height: min(76vw, 41dvh, 360px);
   min-width: 230px;
   min-height: 230px;
-  background-color: #ffffff;
+  background-color: var(--bg-color);
   border: 3px solid var(--primary-color);
   border-radius: 8px;
   overflow: hidden;
@@ -404,7 +426,7 @@ h1 {
   position: absolute;
   top: 6px;
   left: 8px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(150, 150, 150, 0.15);
   padding: 2px 8px;
   border-radius: 10px;
   font-size: 0.78rem;
@@ -437,8 +459,8 @@ h1 {
   font-weight: 700;
   margin-bottom: 14px;
   padding: 12px 10px;
-  background: #fff;
-  border: 2px dashed #90caf9;
+  background: var(--bg-color);
+  border: 2px dashed var(--border-color);
   border-radius: 12px;
 }
 
@@ -446,10 +468,11 @@ h1 {
   display: inline-block;
   min-width: 26px;
   text-align: center;
-  border-bottom: 3px solid #37474f;
-  color: #1565c0;
+  border-bottom: 3px solid var(--text-muted);
+  color: var(--secondary-color);
   text-transform: lowercase;
   line-height: 1.2;
+  vertical-align: bottom; /* 確保底線對齊 */
 }
 
 .en-char-slot.empty {
@@ -462,8 +485,8 @@ h1 {
 }
 
 .en-char-slot.hint {
-  color: #b71c1c;
-  border-bottom-color: #b71c1c;
+  color: var(--primary-color);
+  border-bottom-color: var(--primary-color);
 }
 
 /* 英文：觸控虛擬鍵盤 */
@@ -487,13 +510,13 @@ h1 {
   min-width: 28px;
   max-width: 46px;
   height: 48px;
-  background: #fff;
-  border: 1px solid #cfd8dc;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   font-size: 1.35rem;
   font-weight: 700;
-  color: #263238;
-  box-shadow: 0 2px 0 #b0bec5;
+  color: var(--text-main);
+  box-shadow: 0 2px 0 var(--border-color);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -505,21 +528,21 @@ h1 {
 
 .en-key:active {
   transform: translateY(2px);
-  box-shadow: 0 0 0 #b0bec5;
-  background: #e3f2fd;
+  box-shadow: 0 0 0 transparent;
+  background: var(--bg-color);
 }
 
 .en-key.wide {
   flex: 1.6;
   max-width: 68px;
   font-size: 1.15rem;
-  background: #eceff1;
+  background: var(--bg-color);
 }
 
 .en-key.confirm-key {
-  background: #e8f5e9;
-  border-color: #81c784;
-  color: #2e7d32;
+  background: transparent;
+  border: 1px solid var(--secondary-color);
+  color: var(--secondary-color);
 }
 
 .en-key.space {
@@ -527,7 +550,7 @@ h1 {
   max-width: 240px;
   height: 44px;
   font-size: 0.95rem;
-  background: #f5f5f5;
+  background: var(--bg-color);
 }
 
 /* === 7. 底部動作列 (確認/提示/清除/跳過) === */
