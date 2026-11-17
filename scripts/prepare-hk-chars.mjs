@@ -3,13 +3,28 @@
 //   有表頭 CSV / JSON：node scripts/prepare-hk-chars.mjs
 //   無表頭 CSV 指定列序：node scripts/prepare-hk-chars.mjs --cols=char,grade,strokes
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 const RAW_DIR = path.resolve('raw-data');
 const OUT_PATH = path.join(RAW_DIR, 'hk-chars.json');
 
+// CLI 色碼配置
+const CLI_COLORS = {
+  reset: '\x1b[0m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  red: '\x1b[31m',
+  cyan: '\x1b[36m',
+  gray: '\x1b[90m'
+};
+
 const colsArg = process.argv.find(arg => arg.startsWith('--cols='));
 const COL_SPEC = colsArg ? colsArg.split('=')[1] : 'char,grade,strokes';
+
+// 效能優化：預先編譯正則，避免迴圈內反覆實例化
+const REGEX_HANZI = /^[\u4e00-\u9fff]$/;
+const REGEX_DIGIT = /^\d+$/;
 
 function parseCsvLine(line) {
   const out = [];
@@ -37,8 +52,8 @@ function parseCsvLine(line) {
   return out;
 }
 
-function loadCsv(csvPath, colSpec) {
-  const text = fs.readFileSync(csvPath, 'utf-8').replace(/^\uFEFF/, '');
+async function loadCsv(csvPath, colSpec) {
+  const text = (await fsp.readFile(csvPath, 'utf-8')).replace(/^\uFEFF/, '');
   const lines = text.split(/\r?\n/).filter(l => l.trim());
   if (lines.length === 0) return [];
 
@@ -64,7 +79,7 @@ function loadCsv(csvPath, colSpec) {
   }
 
   if (charIdx < 0) {
-    console.error('❌ 找不到「字」欄位，請確認 CSV 表頭或使用 --cols=char,grade,strokes 指定列序');
+    console.error(`${CLI_COLORS.red}❌ 找不到「字」欄位，請確認 CSV 表頭或使用 --cols=char,grade,strokes 指定列序${CLI_COLORS.reset}`);
     process.exit(1);
   }
 
@@ -72,13 +87,15 @@ function loadCsv(csvPath, colSpec) {
   for (let i = dataStart; i < lines.length; i++) {
     const cols = parseCsvLine(lines[i]);
     const ch = cols[charIdx];
-    if (!ch || !/^[\u4e00-\u9fff]$/.test(ch)) continue;
+    
+    // 防護：確保是合法單一中文字 (排除了 Surrogate Pairs 異常)
+    if (!ch || !REGEX_HANZI.test(ch) || Array.from(ch).length !== 1) continue;
 
     // 嚴格匹配純數字，防止粵音聲調（如 jat1）或文字被誤抽成數字
     let grade = 99;
     if (gradeIdx >= 0 && cols[gradeIdx]) {
       const gStr = cols[gradeIdx].trim();
-      if (/^\d+$/.test(gStr)) {
+      if (REGEX_DIGIT.test(gStr)) {
         const g = parseInt(gStr, 10);
         if (g >= 1 && g <= 6) grade = g;
       }
@@ -87,7 +104,7 @@ function loadCsv(csvPath, colSpec) {
     let strokes = null;
     if (strokesIdx >= 0 && cols[strokesIdx]) {
       const sStr = cols[strokesIdx].trim();
-      if (/^\d+$/.test(sStr)) {
+      if (REGEX_DIGIT.test(sStr)) {
         const s = parseInt(sStr, 10);
         if (s >= 1 && s <= 36) strokes = s;
       }
@@ -99,13 +116,13 @@ function loadCsv(csvPath, colSpec) {
   return records;
 }
 
-function loadRawRecords() {
+async function loadRawRecords() {
   const jsonPath = path.join(RAW_DIR, 'hk-raw.json');
   const csvPath = path.join(RAW_DIR, 'hk-raw.csv');
   const txtPath = path.join(RAW_DIR, 'hk-raw.txt');
 
   if (fs.existsSync(jsonPath)) {
-    const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf-8').replace(/^\uFEFF/, ''));
+    const raw = JSON.parse((await fsp.readFile(jsonPath, 'utf-8')).replace(/^\uFEFF/, ''));
     return raw.map(r => {
       const g = Number(r['年級'] ?? r['年级'] ?? r.grade ?? 0);
       const s = Number(r['筆劃'] ?? r['筆畫'] ?? r.strokes ?? 0);
@@ -118,26 +135,27 @@ function loadRawRecords() {
   }
 
   if (fs.existsSync(csvPath)) {
-    return loadCsv(csvPath, COL_SPEC);
+    return await loadCsv(csvPath, COL_SPEC);
   }
 
   if (fs.existsSync(txtPath)) {
-    console.error('❌ 純文字格式（hk-raw.txt）無法提供年級資訊，會導致 --limit=200 抽樣失準。');
-    console.error('   請改用含表頭的 raw-data/hk-raw.csv，或建立 raw-data/hk-raw.json（格式：[{"字":"一","年級":1,"筆劃":1}]）');
+    console.error(`${CLI_COLORS.red}❌ 純文字格式（hk-raw.txt）無法提供年級資訊，會導致 --limit=200 抽樣失準。${CLI_COLORS.reset}`);
+    console.error(`${CLI_COLORS.red}   請改用含表頭的 raw-data/hk-raw.csv，或建立 raw-data/hk-raw.json（格式：[{"字":"一","年級":1,"筆劃":1}]）${CLI_COLORS.reset}`);
     process.exit(1);
   }
 
-  console.error('❌ 找不到輸入檔！請在 raw-data/ 放入 hk-raw.csv 或 hk-raw.json');
+  console.error(`${CLI_COLORS.red}❌ 找不到輸入檔！請在 raw-data/ 放入 hk-raw.csv 或 hk-raw.json${CLI_COLORS.reset}`);
   process.exit(1);
 }
 
-function main() {
-  fs.mkdirSync(RAW_DIR, { recursive: true });
-  const records = loadRawRecords();
+async function main() {
+  await fsp.mkdir(RAW_DIR, { recursive: true });
+  const records = await loadRawRecords();
 
   const dedupMap = new Map();
   for (const item of records) {
-    if (!/^[\u4e00-\u9fff]$/.test(item.char)) continue;
+    if (!REGEX_HANZI.test(item.char) || Array.from(item.char).length !== 1) continue;
+    
     const existing = dedupMap.get(item.char);
     if (
       !existing ||
@@ -155,13 +173,16 @@ function main() {
   const sorted = Array.from(dedupMap.values()).sort((a, b) => a.grade - b.grade);
   const hasGradeInfo = sorted.some(item => item.grade >= 1 && item.grade <= 6);
 
-  fs.writeFileSync(OUT_PATH, JSON.stringify(sorted, null, 2), 'utf-8');
+  await fsp.writeFile(OUT_PATH, JSON.stringify(sorted, null, 2), 'utf-8');
 
-  console.log(`✅ 已生成 raw-data/hk-chars.json（共 ${sorted.length} 個不重複繁體字）`);
+  console.log(`${CLI_COLORS.green}✅ 已生成 raw-data/hk-chars.json（共 ${sorted.length} 個不重複繁體字）${CLI_COLORS.reset}`);
   if (!hasGradeInfo) {
-    console.warn('⚠️  警告：輸入資料未包含有效年級（1-6），--limit=200 將按原檔順序而非年級抽取！');
+    console.warn(`${CLI_COLORS.yellow}⚠️  警告：輸入資料未包含有效年級（1-6），--limit=200 將按原檔順序而非年級抽取！${CLI_COLORS.reset}`);
   }
-  console.log(`🔍 前 40 字預覽：${sorted.slice(0, 40).map(x => x.char).join('')}`);
+  console.log(`${CLI_COLORS.cyan}🔍 前 40 字預覽：${CLI_COLORS.gray}${sorted.slice(0, 40).map(x => x.char).join('')}${CLI_COLORS.reset}\n`);
 }
 
-main();
+main().catch(err => {
+  console.error(`${CLI_COLORS.red}❌ 執行發生致命錯誤：${err.message}${CLI_COLORS.reset}`);
+  process.exit(1);
+});
