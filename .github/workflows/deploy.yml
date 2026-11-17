@@ -12,7 +12,6 @@ permissions:
   pages: write
   id-token: write
 
-# 併發控制優化：PR 頻繁推送時自動取消舊任務，省時省算力；Main 分支則排隊執行
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -29,33 +28,30 @@ jobs:
       - name: 2. 安裝 pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 12
 
       - name: 3. 設定 Node.js 20 與套件快取
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'pnpm'
-          # 修正快取依據：使用 lockfile 才能確保快取雜湊值的精準度
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: 4. 安裝相依套件 (鎖定版本)
-        # 移除危險的 --no-frozen-lockfile，確保 CI 環境與本機依賴 100% 一致
         run: pnpm install --frozen-lockfile
 
-      - name: 5. 執行全自動資料治理管線 (清洗 ➔ 編譯 ➔ 轉換 ➔ 三態 ➔ 審計)
-        # 呼叫 package.json 剛剛設定好的終極指令
-        run: pnpm run data:pipeline
+      - name: 5. 編譯字典與三態治理數據管線
+        run: |
+          pnpm run compile:dict
+          pnpm run build:data
 
       - name: 6. TypeScript 嚴格型別檢查
-        # 依賴 tsconfig.json 內的嚴格設定，保持 CI 腳本簡潔
         run: pnpm run typecheck
 
       - name: 7. 執行自動化門禁測試
         run: pnpm run test:run
 
       - name: 8. 構建生產環境靜態檔案
-        # vite.config.ts 已經設定好 base: '/KidsPrepDictate/'，這裡不需再硬編碼
         run: pnpm exec vite build
 
       - name: 9. 上傳 GitHub Pages 構建產物
@@ -63,7 +59,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
-          retention-days: 1 # 部署後自動清理 Artifact，節省 GitHub 空間
+          retention-days: 1
 
   deploy-pages:
     name: 🚀 部署至 GitHub Pages
