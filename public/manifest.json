@@ -1,0 +1,21 @@
+{
+  "name": "童温默書 KidsPrepDictate",
+  "short_name": "童温默書",
+  "description": "香港小學中英雙語默書 PWA 工具",
+  "start_url": "/KidsPrepDictate/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#b71c1c",
+  "icons": [
+    {
+      "src": "KidsPrepDictate192icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "KidsPrepDictate512icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
