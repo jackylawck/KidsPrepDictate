@@ -120,7 +120,6 @@ function initApp() {
   const candidatePool: StrokeData[] = [];
   const charCache = new Map<string, StrokeData>();
   
-  // 優化防禦：移除 baseUrl 結尾的斜線，避免與後續路徑拼接產生 `//` 導致 404
   const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
 
   const updateProgressBadge = () => {
@@ -446,10 +445,15 @@ function initApp() {
     if (!isFreeWriteMode && currentIndex >= tokens.length) {
       localStorage.removeItem(STORAGE_KEY);
       
-      // 優化 1：通關後完整收尾（清空畫布與收起多餘按鈕）
+      // 🚀 優化 1：徹底收尾，防止過關後繼續畫畫
       traceCanvas.clearInk();
+      // 如果 traceCanvas 在未來實作了鎖定，可以解除下面這行註解：
+      // if (typeof traceCanvas.lock === 'function') traceCanvas.lock();
+      
       btnHint.style.display = 'none';
       btnSpeakChar.style.display = 'none';
+      btnConfirmWord.style.display = 'none';
+      btnClear.style.display = 'none';
       if (btnSkip) btnSkip.style.display = 'none';
       
       showBanner(t('msgCompleted'));
@@ -461,6 +465,8 @@ function initApp() {
     if (!isFreeWriteMode) {
       btnHint.style.display = 'inline-block';
       btnSpeakChar.style.display = 'inline-block';
+      btnConfirmWord.style.display = 'inline-block';
+      btnClear.style.display = 'inline-block';
       if (btnSkip) btnSkip.style.display = 'inline-block';
     }
 
@@ -493,7 +499,6 @@ function initApp() {
     const unicode = code.toString(16).toUpperCase().padStart(4, '0');
 
     try {
-      // 優化 2：確保安全拼接斜線
       const res = await fetchWithTimeout(`${baseUrl}/data/${unicode}.json`, 3000);
       if (reqId !== loadRequestId) return;
       if (!res.ok) throw new Error('Not found');
@@ -606,6 +611,12 @@ function initApp() {
   traceCanvas.setCallbacks(handleStrictResult, handleFreeRecognize);
 
   const startFreeMode = () => {
+    // 🚀 優化 3：重新啟動時解鎖按鈕
+    btnConfirmWord.style.display = 'inline-block';
+    btnClear.style.display = 'inline-block';
+    // 如果 traceCanvas 有實作 unlock，可以解除下面這行註解：
+    // if (typeof traceCanvas.unlock === 'function') traceCanvas.unlock();
+
     const zhRadio = document.querySelector<HTMLInputElement>('input[name="subject"][value="zh"]');
     if (zhRadio) zhRadio.checked = true;
     syncSubjectUI('zh');
@@ -634,6 +645,12 @@ function initApp() {
       showBanner(t('msgEmptyPassage'), true);
       return;
     }
+
+    // 🚀 優化 3：重新啟動時解鎖按鈕
+    btnConfirmWord.style.display = 'inline-block';
+    btnClear.style.display = 'inline-block';
+    // 如果 traceCanvas 有實作 unlock，可以解除下面這行註解：
+    // if (typeof traceCanvas.unlock === 'function') traceCanvas.unlock();
 
     const selectedRadio = document.querySelector<HTMLInputElement>('input[name="subject"]:checked');
     const chosenSubject = (selectedRadio?.value as SubjectMode) || currentSubject;
