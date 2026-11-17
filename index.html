@@ -1,14 +1,67 @@
 <!DOCTYPE html>
-<html lang="zh-HK">
+<html lang="zh-HK" prefix="og: https://ogp.me/ns#">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>童温默書 KidsPrepDictate</title>
-  <meta name="description" content="純前端、可離線運作的香港小學繁體字與英文默書應用程式" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no, viewport-fit=cover" />
+  
+  <!-- 🔍 基礎 SEO 核心標籤與 Google 驗證 -->
+  <title>童温默書 KidsPrepDictate | 香港小學中英雙語默書 PWA 工具</title>
+  <meta name="description" content="純前端、可離線運作的香港小學繁體字與英文默書 PWA。支援雙引擎筆順驗證、離線廣東話/英語發音與家長自訂課文，為小朋友打造無壓力默書體驗。" />
+  <meta name="keywords" content="默書, 香港小學, 繁體字筆順, 英文默書, PWA, 默書APP, 童温默書, KidsPrepDictate" />
+  <meta name="author" content="Jacky Law" />
+  <meta name="robots" content="index, follow" />
+  <meta name="google-site-verification" content="JZ5UohX-CcP_fQV0_DI9VadkKY4ZoTTkUifL88-fIcY" />
+  <link rel="canonical" href="https://jackylawck.github.io/KidsPrepDictate/" />
+
+  <!-- 🌐 Open Graph (Facebook / LinkedIn / WhatsApp 社交卡片) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://jackylawck.github.io/KidsPrepDictate/" />
+  <meta property="og:title" content="童温默書 KidsPrepDictate | 專為香港學童設計" />
+  <meta property="og:description" content="純前端、可離線運作的中英文默書神器，內建港標繁體字庫與語音發聲，解放家長出題壓力！" />
+  <meta property="og:image" content="https://jackylawck.github.io/KidsPrepDictate/KidsPrepDictate512icon.png" />
+  <meta property="og:image:width" content="512" />
+  <meta property="og:image:height" content="512" />
+  <meta property="og:image:alt" content="童温默書 KidsPrepDictate 標誌" />
+  <meta property="og:locale" content="zh_HK" />
+  <meta property="og:site_name" content="童温默書" />
+
+  <!-- 🐦 Twitter Cards -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="童温默書 KidsPrepDictate" />
+  <meta name="twitter:description" content="香港小學專用中英文默書 PWA，支援離線發音與嚴格筆順驗證。" />
+  <meta name="twitter:image" content="https://jackylawck.github.io/KidsPrepDictate/KidsPrepDictate512icon.png" />
+
+  <!-- 📱 PWA 與行動裝置「加入主畫面」設定 -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="童温默書" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#b71c1c" />
+  <meta name="application-name" content="童温默書" />
+  
+  <!-- 🍎 iOS 桌面圖示 (簡約風) -->
+  <link rel="apple-touch-icon" href="/KidsPrepDictate192icon.png" />
+  
+  <!-- 🤖 Android/Chrome PWA 桌面安裝配置 -->
+  <link rel="manifest" href="/manifest.json" />
+
+  <!-- 🛡️ 企業級安全策略：Content Security Policy (CSP) 與權限隔離 -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline' 'unsafe-eval';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: blob: https://jackylawck.github.io;
+    font-src 'self' data:;
+    connect-src 'self' data: ws: wss:;
+    media-src 'self' data:;
+    object-src 'none';
+    base-uri 'self';
+    form-action 'none';
+  " />
+  <!-- 默書 App 不需要取用鏡頭、麥克風與定位，直接全面封鎖提升資安評級 -->
+  <meta http-equiv="Permissions-Policy" content="accelerometer=(), gyroscope=(), microphone=(), camera=(), geolocation=(), payment=()" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
