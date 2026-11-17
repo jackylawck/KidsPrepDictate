@@ -15,6 +15,8 @@ export class TraceCanvas {
 
   private isBlindMode: boolean = true;
   private isFreeWriteMode: boolean = true;
+  private isLocked: boolean = false; // 🚀 新增：防止過關後繼續畫圖的鎖定機制
+  
   private userStrokes: Point[][] = [];
   private currentStrokePoints: Point[] = [];
   
@@ -62,6 +64,18 @@ export class TraceCanvas {
         this.clearInk();
       }, 150);
     }, { signal: this.abortController.signal });
+  }
+
+  // 🚀 新增：鎖死畫布，拒絕觸控輸入
+  public lock() {
+    this.isLocked = true;
+    this.isDrawing = false;
+    this.activePointerId = null;
+  }
+
+  // 🚀 新增：解鎖畫布，準備下一題
+  public unlock() {
+    this.isLocked = false;
   }
 
   public getUserStrokeCount(): number {
@@ -142,6 +156,7 @@ export class TraceCanvas {
   public loadDictationTarget(data: StrokeData) {
     this.clearAllTimers();
     this.isDrawing = false;
+    this.isLocked = false; // 切換題目時自動解鎖
     this.isFreeWriteMode = false;
     this.isBlindMode = true;
     this.currentData = data;
@@ -151,6 +166,7 @@ export class TraceCanvas {
   public enterFreeWriteMode() {
     this.clearAllTimers();
     this.isDrawing = false;
+    this.isLocked = false; // 進入自由模式自動解鎖
     this.isFreeWriteMode = true;
     this.isBlindMode = true;
     this.currentData = null;
@@ -291,8 +307,8 @@ export class TraceCanvas {
 
     const start = (e: PointerEvent) => {
       e.preventDefault();
-      // 防呆：如果是其他手指觸碰，直接忽略
-      if (!e.isPrimary || this.isDrawing) return;
+      // 🚀 防呆 1：如果畫布已鎖定（例如過關後）或不是主手指，直接略過
+      if (this.isLocked || !e.isPrimary || this.isDrawing) return;
       
       this.activePointerId = e.pointerId;
       const rect = this.inkCanvas.getBoundingClientRect();
@@ -346,7 +362,7 @@ export class TraceCanvas {
 
     const move = (e: PointerEvent) => {
       e.preventDefault();
-      if (!this.isDrawing || e.pointerId !== this.activePointerId) return;
+      if (this.isLocked || !this.isDrawing || e.pointerId !== this.activePointerId) return;
       
       // 節流：只記錄最後一次事件，交由下一影格繪製
       pendingMoveEvent = e;
@@ -357,7 +373,7 @@ export class TraceCanvas {
 
     const stop = (e: PointerEvent) => {
       e.preventDefault();
-      if (!this.isDrawing || e.pointerId !== this.activePointerId) return;
+      if (this.isLocked || !this.isDrawing || e.pointerId !== this.activePointerId) return;
       
       // 確保最後一點被繪製
       if (this.rafId) {
@@ -391,7 +407,7 @@ export class TraceCanvas {
 
     const cancel = (e: PointerEvent) => {
       e.preventDefault();
-      if (!this.isDrawing || e.pointerId !== this.activePointerId) return;
+      if (this.isLocked || !this.isDrawing || e.pointerId !== this.activePointerId) return;
 
       if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null; }
       pendingMoveEvent = null;
