@@ -17,13 +17,17 @@ export class TraceCanvas {
   private isFreeWriteMode: boolean = true;
   private userStrokes: Point[][] = [];
   private currentStrokePoints: Point[] = [];
-  private lastScreenPos: { x: number; y: number } | null = null;
+  
+  // 效能優化：使用基本數據型別快取螢幕座標，減少記憶體分配 (GC Churn)
+  private lastScreenX: number = -1;
+  private lastScreenY: number = -1;
   private activePointerId: number | null = null;
 
   private autoCheckTimer: number | null = null;
   private failClearTimer: number | null = null;
   private hintTimer: number | null = null;
   private resizeTimer: number | null = null;
+  private rafId: number | null = null; // 用於 RAF 節流
 
   private onStrictResultCallback?: (result: VerifyResult) => void;
   private onFreeRecognizeCallback?: (strokes: Point[][]) => void;
@@ -42,7 +46,9 @@ export class TraceCanvas {
     this.traceCanvas = traceEl;
     this.traceCtx = this.traceCanvas.getContext('2d')!;
     this.inkCanvas = inkEl;
-    this.inkCtx = this.inkCanvas.getContext('2d')!;
+    // 優化：提示瀏覽器可能需要頻繁讀取此畫布（若後續 matcher 會在此讀取像素）
+    this.inkCtx = this.inkCanvas.getContext('2d', { willReadFrequently: true })!; 
+    
     this.staticGridCache = document.createElement('canvas');
     this.strokeBadge = document.getElementById(badgeId);
 
@@ -69,6 +75,7 @@ export class TraceCanvas {
 
   public destroy() {
     this.clearAllTimers();
+    if (this.rafId) cancelAnimationFrame(this.rafId);
     this.abortController.abort();
   }
 
@@ -107,7 +114,7 @@ export class TraceCanvas {
     this.inkCtx.lineCap = 'round';
     this.inkCtx.lineJoin = 'round';
     
-    // 優化：加粗至 16，配合視覺掃描引擎的光柵化特徵提取
+    // 配合視覺掃描引擎的光柵化特徵提取
     this.inkCtx.lineWidth = 16;
     this.inkCtx.strokeStyle = 'rgba(25, 118, 210, 0.88)';
 
@@ -162,7 +169,6 @@ export class TraceCanvas {
     }, durationMs);
   }
 
-  // 優化：當目標筆畫為 0（缺字）時，顯示視覺掃描狀態
   public updateBadge() {
     if (!this.strokeBadge) return;
     if (this.isFreeWriteMode) {
@@ -220,9 +226,12 @@ export class TraceCanvas {
   public clearInk() {
     if (this.autoCheckTimer) { clearTimeout(this.autoCheckTimer); this.autoCheckTimer = null; }
     if (this.failClearTimer) { clearTimeout(this.failClearTimer); this.failClearTimer = null; }
+    if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null; }
+    
     this.userStrokes = [];
     this.currentStrokePoints = [];
-    this.lastScreenPos = null;
+    this.lastScreenX = -1;
+    this.lastScreenY = -1;
     this.activePointerId = null;
 
     this.inkCtx.save();
@@ -260,7 +269,6 @@ export class TraceCanvas {
       }, 950);
     } else if (this.currentData && this.userStrokes.length >= 1) {
       const targetTotal = this.getTargetStrokeCount();
-      // 優化：當目標為 0（缺字視覺掃描）或少寫時，等待 1400ms（原為 1600ms）
       const delay = targetTotal > 0 && this.userStrokes.length >= targetTotal ? 850 : 1400;
       this.autoCheckTimer = window.setTimeout(() => {
         this.triggerVerificationNow();
@@ -272,59 +280,91 @@ export class TraceCanvas {
     const opts = { signal: this.abortController.signal };
     this.inkCanvas.style.touchAction = 'none';
 
+    // 效能優化：使用物件重用，避免每次 getPos 創建新物件
+    const currentPos = { x: 0, y: 0 };
     const getPos = (e: PointerEvent) => {
       const rect = this.inkCanvas.getBoundingClientRect();
-      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      currentPos.x = e.clientX - rect.left;
+      currentPos.y = e.clientY - rect.top;
+      return currentPos;
     };
 
     const start = (e: PointerEvent) => {
       e.preventDefault();
-
+      // 防呆：如果是其他手指觸碰，直接忽略
       if (!e.isPrimary || this.isDrawing) return;
+      
       this.activePointerId = e.pointerId;
-
       const rect = this.inkCanvas.getBoundingClientRect();
       if (Math.abs(rect.width - this.canvasWidth) > 2 || Math.abs(rect.height - this.canvasHeight) > 2) {
         this.initRetinaDisplay();
         this.clearInk();
       }
 
-      if (this.autoCheckTimer) { clearTimeout(this.autoCheckTimer); this.autoCheckTimer = null; }
-      if (this.failClearTimer) { clearTimeout(this.failClearTimer); this.failClearTimer = null; }
-
+      this.clearAllTimers();
       this.inkCanvas.setPointerCapture(this.activePointerId);
       this.isDrawing = true;
+      
       const pos = getPos(e);
-      this.lastScreenPos = pos;
+      this.lastScreenX = pos.x;
+      this.lastScreenY = pos.y;
+      
       this.currentStrokePoints = [
         DictationMatcher.screenToHanziCoords(pos.x, pos.y, this.canvasWidth, this.canvasHeight)
       ];
+      
       this.inkCtx.beginPath();
       this.inkCtx.moveTo(pos.x, pos.y);
       this.inkCtx.lineTo(pos.x + 0.1, pos.y + 0.1);
       this.inkCtx.stroke();
     };
 
-    const move = (e: PointerEvent) => {
-      e.preventDefault();
-      if (!this.isDrawing || e.pointerId !== this.activePointerId) return;
-      const pos = getPos(e);
+    // 效能優化：將繪製動作委託給 requestAnimationFrame 處理
+    let pendingMoveEvent: PointerEvent | null = null;
+    
+    const drawMove = () => {
+      if (!this.isDrawing || !pendingMoveEvent) return;
+      const pos = getPos(pendingMoveEvent);
+      pendingMoveEvent = null; // 處理完畢清空
 
-      if (this.lastScreenPos && Math.hypot(pos.x - this.lastScreenPos.x, pos.y - this.lastScreenPos.y) < 2.5) {
+      // 防抖：過於微小的移動不處理，減少轉換與繪製開銷
+      if (this.lastScreenX !== -1 && Math.hypot(pos.x - this.lastScreenX, pos.y - this.lastScreenY) < 2.5) {
+        this.rafId = null;
         return;
       }
-      this.lastScreenPos = pos;
+      
+      this.lastScreenX = pos.x;
+      this.lastScreenY = pos.y;
 
       this.currentStrokePoints.push(
         DictationMatcher.screenToHanziCoords(pos.x, pos.y, this.canvasWidth, this.canvasHeight)
       );
       this.inkCtx.lineTo(pos.x, pos.y);
       this.inkCtx.stroke();
+      this.rafId = null;
+    };
+
+    const move = (e: PointerEvent) => {
+      e.preventDefault();
+      if (!this.isDrawing || e.pointerId !== this.activePointerId) return;
+      
+      // 節流：只記錄最後一次事件，交由下一影格繪製
+      pendingMoveEvent = e;
+      if (!this.rafId) {
+        this.rafId = requestAnimationFrame(drawMove);
+      }
     };
 
     const stop = (e: PointerEvent) => {
       e.preventDefault();
       if (!this.isDrawing || e.pointerId !== this.activePointerId) return;
+      
+      // 確保最後一點被繪製
+      if (this.rafId) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+      if (pendingMoveEvent) drawMove();
 
       const pos = getPos(e);
       this.inkCtx.lineTo(pos.x, pos.y);
@@ -333,6 +373,7 @@ export class TraceCanvas {
 
       this.isDrawing = false;
       this.activePointerId = null;
+      pendingMoveEvent = null;
 
       if (this.currentStrokePoints.length > 0) {
         this.userStrokes.push(this.currentStrokePoints);
@@ -352,10 +393,15 @@ export class TraceCanvas {
       e.preventDefault();
       if (!this.isDrawing || e.pointerId !== this.activePointerId) return;
 
+      if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null; }
+      pendingMoveEvent = null;
+
       this.inkCtx.closePath();
       this.isDrawing = false;
       this.activePointerId = null;
       this.currentStrokePoints = [];
+      this.lastScreenX = -1;
+      this.lastScreenY = -1;
 
       try {
         if (this.inkCanvas.hasPointerCapture(e.pointerId)) {
