@@ -13,7 +13,6 @@ interface GlyphMask {
 export class DictationMatcher {
   private static glyphMaskCache = new Map<string, GlyphMask | null>();
   
-  // 效能優化：共用 Canvas 實例，避免頻繁 createElement 導致 GC 記憶體抖動卡頓
   private static sharedCanvas: HTMLCanvasElement | null = null;
   private static sharedCtx: CanvasRenderingContext2D | null = null;
   private static normCanvas: HTMLCanvasElement | null = null;
@@ -24,7 +23,6 @@ export class DictationMatcher {
       this.sharedCanvas = document.createElement('canvas');
       this.sharedCanvas.width = GRID_SIZE;
       this.sharedCanvas.height = GRID_SIZE;
-      // willReadFrequently: true 避免頻繁 getImageData 造成的 GPU 阻塞
       this.sharedCtx = this.sharedCanvas.getContext('2d', { willReadFrequently: true });
 
       this.normCanvas = document.createElement('canvas');
@@ -193,7 +191,6 @@ export class DictationMatcher {
     let inkPixels = 0;
 
     for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
-      // 由於背景已用 clearRect 清空 (透明)，我們檢查 alpha 遮罩即可，避免不必要的 RGB 判斷
       if (data[i * 4 + 3] > 80) {
         mask[i] = 1;
         inkPixels++;
@@ -372,7 +369,6 @@ export class DictationMatcher {
     const hasMedians = Boolean(targetData.medians && targetData.medians.length > 0);
     const visualScore = this.scoreGlyphVisual(userStrokes, targetData.char);
 
-    // 瀏覽器環境：必須進行視覺分數驗證
     if (visualScore !== null) {
       if (hasMedians) {
         const targetCount = targetData.medians!.length;
@@ -398,12 +394,12 @@ export class DictationMatcher {
           };
         }
       } else {
-        // 缺字防線：沒有筆順庫時，使用降低門檻的視覺評分 (0.40)，阻擋鬼畫符塗鴉
         if (visualScore >= 0.40) {
           return {
             status: 'SUCCESS',
             score: 0.8,
-            message: t('verifyFallbackSuccess', { char: targetData.char })
+            message: t('verifyFallbackSuccess', { char: targetData.char }),
+            isFallback: true
           };
         }
       }
@@ -415,12 +411,12 @@ export class DictationMatcher {
       };
     }
 
-    // 無 DOM 視覺引擎環境（Vitest 單元測試）：缺字無條件放行以通過測試
     if (!hasMedians) {
       return {
         status: 'SUCCESS',
         score: 0.8,
-        message: t('verifyFallbackSuccess', { char: targetData.char })
+        message: t('verifyFallbackSuccess', { char: targetData.char }),
+        isFallback: true
       };
     }
 
