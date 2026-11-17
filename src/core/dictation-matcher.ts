@@ -291,7 +291,8 @@ export class DictationMatcher {
     return resampled;
   }
 
-  private static scoreSingleStroke(userStroke: Point[], targetMedian: number[][]): number {
+  // 👇 修復：接收 readonly number[][]
+  private static scoreSingleStroke(userStroke: Point[], targetMedian: readonly number[][]): number {
     if (userStroke.length < 2 || targetMedian.length < 2) return 0;
 
     const targetPts: Point[] = targetMedian.map(([x, y]) => ({ x, y }));
@@ -320,7 +321,8 @@ export class DictationMatcher {
     return shapeScore * 0.65 + cosSim * 0.35;
   }
 
-  private static scoreVectorMedians(userStrokes: Point[][], medians: number[][][]): {
+  // 👇 修復：接收 readonly number[][][]
+  private static scoreVectorMedians(userStrokes: Point[][], medians: readonly number[][][]): {
     inOrderAvg: number;
     unorderedAvg: number;
   } {
