@@ -24,9 +24,6 @@ const STORAGE_KEY = 'kidsprep_session_v2';
 type SubjectMode = 'zh' | 'en';
 type EnHintLevel = 'first' | 'firstTwo' | 'full';
 
-/**
- * 空間優化版 Levenshtein 編輯距離（O(N) 滾動陣列，避免二維陣列 GC 開銷）
- */
 function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
   const m = a.length;
@@ -122,7 +119,9 @@ function initApp() {
 
   const candidatePool: StrokeData[] = [];
   const charCache = new Map<string, StrokeData>();
-  const baseUrl = import.meta.env.BASE_URL || '/';
+  
+  // 優化防禦：移除 baseUrl 結尾的斜線，避免與後續路徑拼接產生 `//` 導致 404
+  const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
 
   const updateProgressBadge = () => {
     let total = 0;
@@ -265,7 +264,7 @@ function initApp() {
           if (!code) return;
           const unicode = code.toString(16).toUpperCase().padStart(4, '0');
           try {
-            const res = await fetchWithTimeout(`${baseUrl}data/${unicode}.json`, 3000);
+            const res = await fetchWithTimeout(`${baseUrl}/data/${unicode}.json`, 3000);
             if (res.ok) {
               const data: StrokeData = await res.json();
               if (data.medians && data.medians.length > 0 && !charCache.has(ch)) {
@@ -446,9 +445,23 @@ function initApp() {
 
     if (!isFreeWriteMode && currentIndex >= tokens.length) {
       localStorage.removeItem(STORAGE_KEY);
+      
+      // 優化 1：通關後完整收尾（清空畫布與收起多餘按鈕）
+      traceCanvas.clearInk();
+      btnHint.style.display = 'none';
+      btnSpeakChar.style.display = 'none';
+      if (btnSkip) btnSkip.style.display = 'none';
+      
       showBanner(t('msgCompleted'));
       speakText(currentSubject === 'en' ? t('msgCompletedEnVoice') : t('msgCompletedVoice'), 0.85);
       return;
+    }
+    
+    // 確保未過關時操作按鈕有正常顯示
+    if (!isFreeWriteMode) {
+      btnHint.style.display = 'inline-block';
+      btnSpeakChar.style.display = 'inline-block';
+      if (btnSkip) btnSkip.style.display = 'inline-block';
     }
 
     if (currentSubject === 'en') {
@@ -480,7 +493,8 @@ function initApp() {
     const unicode = code.toString(16).toUpperCase().padStart(4, '0');
 
     try {
-      const res = await fetchWithTimeout(`${baseUrl}data/${unicode}.json`, 3000);
+      // 優化 2：確保安全拼接斜線
+      const res = await fetchWithTimeout(`${baseUrl}/data/${unicode}.json`, 3000);
       if (reqId !== loadRequestId) return;
       if (!res.ok) throw new Error('Not found');
       const data: StrokeData = await res.json();
@@ -537,7 +551,6 @@ function initApp() {
       if (navigator.vibrate) navigator.vibrate(25);
       tokens[currentIndex].revealed = true;
 
-      // 同時相容語意化 isFallback 欄位與舊版 0.8 缺字約定，不受中英文介面切換影響
       if (result.isFallback || result.score === 0.8) {
         tokens[currentIndex].skipped = true;
       }
