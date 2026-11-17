@@ -1,3 +1,4 @@
+// tests/dictation-matcher.spec.ts
 import { describe, it, expect } from 'vitest';
 import { DictationMatcher } from '../src/core/dictation-matcher';
 import type { Point, StrokeData } from '../src/types';
@@ -47,11 +48,17 @@ const fourStrokesData: StrokeData = {
   ],
 };
 
-const line = (x1: number, y1: number, x2: number, y2: number, n = 12): Point[] =>
-  Array.from({ length: n }, (_, i) => ({
-    x: x1 + (x2 - x1) * (i / (n - 1)),
-    y: y1 + (y2 - y1) * (i / (n - 1)),
-  }));
+// 效能優化：修正浮點誤差，確保模擬點的軌跡精準
+const line = (x1: number, y1: number, x2: number, y2: number, n = 12): Point[] => {
+  if (n <= 1) return [{ x: x1, y: y1 }];
+  return Array.from({ length: n }, (_, i) => {
+    const t = i / (n - 1);
+    return {
+      x: x1 + (x2 - x1) * t,
+      y: y1 + (y2 - y1) * t,
+    };
+  });
+};
 
 describe('DictationMatcher.verifyCharacterStrict', () => {
   it('SUCCESS：正確筆順與位置', () => {
@@ -86,7 +93,7 @@ describe('DictationMatcher.verifyCharacterStrict', () => {
     expect(res.status).toBe('TOO_SMALL');
   });
 
-  it('缺字（無 medians）但有認真書寫時，友善放行不卡死', () => {
+  it('缺字（無 medians）但有認真書寫時，友善放行不卡死並回傳 isFallback', () => {
     const noMedian: StrokeData = {
       char: '晚',
       unicode: '665A',
@@ -97,6 +104,13 @@ describe('DictationMatcher.verifyCharacterStrict', () => {
     const res = DictationMatcher.verifyCharacterStrict([line(100, 512, 900, 512)], noMedian);
     expect(res.status).toBe('SUCCESS');
     expect(res.score).toBe(0.8);
+    // 嚴格斷言：確保 v1.1 語意化標記已生效
+    expect(res.isFallback).toBe(true);
+  });
+
+  it('防護邊界：傳入空筆跡陣列應優雅回傳 TOO_SMALL 而不崩潰', () => {
+    const res = DictationMatcher.verifyCharacterStrict([], yiData);
+    expect(res.status).toBe('TOO_SMALL');
   });
 });
 
@@ -109,6 +123,12 @@ describe('DictationMatcher.screenToHanziCoords', () => {
 
   it('橫向畫布（w=600, h=300）：y 軸不應偏移', () => {
     const p = DictationMatcher.screenToHanziCoords(300, 150, 600, 300);
+    expect(p.x).toBeCloseTo(512, 0);
+    expect(p.y).toBeCloseTo(512, 0);
+  });
+
+  it('Retina 高密度大畫布 (iPad Pro 尺寸)：座標轉換仍保持精準', () => {
+    const p = DictationMatcher.screenToHanziCoords(1024, 1024, 2048, 2048);
     expect(p.x).toBeCloseTo(512, 0);
     expect(p.y).toBeCloseTo(512, 0);
   });
