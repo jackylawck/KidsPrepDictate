@@ -4,13 +4,23 @@
   "version": "1.0.0",
   "description": "童温默書 KidsPrepDictate - 專為香港學童設計的互動温默書 PWA 工具",
   "type": "module",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
   "scripts": {
     "dev": "vite",
-    "compile:dict": "tsx scripts/compile-dict.ts",
-    "build:data": "tsx scripts/build-data.ts",
-    "build": "tsc --noEmit && vite build",
+    "build": "pnpm typecheck && vite build",
     "preview": "vite preview",
-    "test": "vitest"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "data:prepare": "node scripts/prepare-hk-chars.mjs",
+    "data:compile": "tsx scripts/compile-dict.ts",
+    "data:convert": "node scripts/convert-mmah.mjs",
+    "data:build": "tsx scripts/build-data.ts",
+    "data:audit": "tsx scripts/audit-curriculum.ts",
+    "data:pipeline": "pnpm data:prepare && pnpm data:compile && pnpm data:convert && pnpm data:build && pnpm data:audit"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
