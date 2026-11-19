@@ -12,7 +12,7 @@ interface GlyphMask {
 
 export class DictationMatcher {
   private static glyphMaskCache = new Map<string, GlyphMask | null>();
-  
+
   private static sharedCanvas: HTMLCanvasElement | null = null;
   private static sharedCtx: CanvasRenderingContext2D | null = null;
   private static normCanvas: HTMLCanvasElement | null = null;
@@ -30,11 +30,11 @@ export class DictationMatcher {
       this.normCanvas.height = GRID_SIZE;
       this.normCtx = this.normCanvas.getContext('2d', { willReadFrequently: true });
     }
-    return { 
-      canvas: this.sharedCanvas, 
-      ctx: this.sharedCtx, 
-      normCanvas: this.normCanvas, 
-      normCtx: this.normCtx 
+    return {
+      canvas: this.sharedCanvas,
+      ctx: this.sharedCtx,
+      normCanvas: this.normCanvas,
+      normCtx: this.normCtx
     };
   }
 
@@ -62,7 +62,7 @@ export class DictationMatcher {
     if (this.glyphMaskCache.has(char)) {
       return this.glyphMaskCache.get(char)!;
     }
-    
+
     const { canvas, ctx, normCanvas, normCtx } = this.getSharedCanvases();
     if (!ctx || !normCtx || !canvas || !normCanvas) return null;
 
@@ -112,7 +112,7 @@ export class DictationMatcher {
       const dilated = new Uint8Array(GRID_SIZE * GRID_SIZE);
       let pixelCount = 0;
 
-      const radius = 3;
+      const radius = 2;
       for (let y = 0; y < GRID_SIZE; y++) {
         for (let x = 0; x < GRID_SIZE; x++) {
           if (normData[(y * GRID_SIZE + x) * 4] > 90) {
@@ -168,7 +168,7 @@ export class DictationMatcher {
     ctx.strokeStyle = '#FFFFFF';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = 4.6;
+    ctx.lineWidth = 3.2;
 
     for (const stroke of userStrokes) {
       if (stroke.length === 0) continue;
@@ -220,8 +220,8 @@ export class DictationMatcher {
       for (let x = 0; x < GRID_SIZE; x++) {
         if (!target.raw[y * GRID_SIZE + x]) continue;
         let found = false;
-        for (let dy = -2; dy <= 2 && !found; dy++) {
-          for (let dx = -2; dx <= 2; dx++) {
+        for (let dy = -1; dy <= 1 && !found; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
             const nx = x + dx;
             const ny = y + dy;
             if (nx >= 0 && nx < GRID_SIZE && ny >= 0 && ny < GRID_SIZE && user.mask[ny * GRID_SIZE + nx]) {
@@ -250,7 +250,7 @@ export class DictationMatcher {
     const user = this.rasterizeUserStrokes(userStrokes);
     if (!user) return null;
     const res = this.scoreGlyphWithRaster(user, targetChar);
-    return res ? res.f1 : null;
+    return res ? res.f1 * res.pixelRatioPenalty : null;
   }
 
   private static resampleStroke(points: Point[], numPoints: number = 8): Point[] {
@@ -291,7 +291,6 @@ export class DictationMatcher {
     return resampled;
   }
 
-  // 👇 修復：接收 readonly number[][]
   private static scoreSingleStroke(userStroke: Point[], targetMedian: readonly number[][]): number {
     if (userStroke.length < 2 || targetMedian.length < 2) return 0;
 
@@ -321,7 +320,6 @@ export class DictationMatcher {
     return shapeScore * 0.65 + cosSim * 0.35;
   }
 
-  // 👇 修復：接收 readonly number[][][]
   private static scoreVectorMedians(userStrokes: Point[][], medians: readonly number[][][]): {
     inOrderAvg: number;
     unorderedAvg: number;
@@ -369,50 +367,7 @@ export class DictationMatcher {
     }
 
     const hasMedians = Boolean(targetData.medians && targetData.medians.length > 0);
-    const visualScore = this.scoreGlyphVisual(userStrokes, targetData.char);
-
-    if (visualScore !== null) {
-      if (hasMedians) {
-        const targetCount = targetData.medians!.length;
-        const userCount = userStrokes.length;
-        if (Math.abs(userCount - targetCount) > 1) {
-          return {
-            status: 'WRONG_STROKE_COUNT',
-            score: 0,
-            message: t('verifyWrongCount', { char: targetData.char, target: targetCount, user: userCount })
-          };
-        }
-
-        const { inOrderAvg, unorderedAvg } = this.scoreVectorMedians(userStrokes, targetData.medians!);
-        const vectorBest = Math.max(inOrderAvg, unorderedAvg * 0.95);
-        const combinedScore = Math.max(visualScore, vectorBest);
-
-        if (combinedScore >= 0.52) {
-          const isUnordered = inOrderAvg < 0.48 && unorderedAvg >= 0.48;
-          return {
-            status: 'SUCCESS',
-            score: combinedScore,
-            message: t(isUnordered ? 'verifySuccessUnordered' : 'verifySuccessOrder', { char: targetData.char })
-          };
-        }
-      } else {
-        if (visualScore >= 0.40) {
-          return {
-            status: 'SUCCESS',
-            score: 0.8,
-            message: t('verifyFallbackSuccess', { char: targetData.char }),
-            isFallback: true
-          };
-        }
-      }
-
-      return {
-        status: 'WRONG_SHAPE',
-        score: visualScore,
-        message: t('verifyWrongShape')
-      };
-    }
-
+    // 缺字優先友善放行（不再因視覺參數收緊而誤卡小朋友）
     if (!hasMedians) {
       return {
         status: 'SUCCESS',
@@ -433,7 +388,28 @@ export class DictationMatcher {
       };
     }
 
+    const visualScore = this.scoreGlyphVisual(userStrokes, targetData.char);
     const { inOrderAvg, unorderedAvg } = this.scoreVectorMedians(userStrokes, targetData.medians!);
+
+    if (visualScore !== null) {
+      const vectorBest = Math.max(inOrderAvg, unorderedAvg * 0.95);
+      const combinedScore = Math.max(visualScore, vectorBest);
+
+      if (combinedScore >= 0.52) {
+        const isUnordered = inOrderAvg < 0.48 && unorderedAvg >= 0.48;
+        return {
+          status: 'SUCCESS',
+          score: combinedScore,
+          message: t(isUnordered ? 'verifySuccessUnordered' : 'verifySuccessOrder', { char: targetData.char })
+        };
+      }
+
+      return {
+        status: 'WRONG_SHAPE',
+        score: visualScore,
+        message: t('verifyWrongShape')
+      };
+    }
 
     if (inOrderAvg >= 0.48) {
       return {
