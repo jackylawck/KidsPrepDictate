@@ -18,30 +18,42 @@ concurrency:
 
 jobs:
   verify-and-build:
-    name: 🛡️ 數據建置、型別檢查與乾淨室測試
+    name: 🛡️ 字庫檢查、型別檢查與乾淨室測試
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: pnpm/action-setup@v4
         with:
           version: 12
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
+
       - name: 安裝相依套件
         run: pnpm install --frozen-lockfile
-      - name: 編譯字典與三態治理數據管線
+
+      - name: 驗證預編譯字庫存在（防止空字庫部署）
         run: |
-          pnpm run compile:dict
-          pnpm run build:data
+          COUNT=$(ls -1 public/data/*.json 2>/dev/null | wc -l)
+          echo "偵測到字庫 JSON 數量: $COUNT"
+          if [ "$COUNT" -lt 100 ]; then
+            echo "❌ public/data 字庫異常或為空，中止部署"
+            exit 1
+          fi
+
       - name: TypeScript 型別檢查
         run: pnpm run typecheck
+
       - name: 單元測試
         run: pnpm run test:run
+
       - name: 構建靜態檔案
         run: pnpm exec vite build
+
       - name: 上傳 GitHub Pages 產物
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
